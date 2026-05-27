@@ -4,6 +4,8 @@
 
 getme for Pebble is a Pebble watch app for [getme](https://github.com/tylxr59/getme), a dead-simple self-hosted grocery list.
 
+Install it from the Pebble app store: <https://apps.repebble.com/6f7de6d295fa464aa9bc7ab8>
+
 This is a new Pebble app based on a fork of [Checklist](https://github.com/freakified/PebbleChecklist). It keeps the fast, button-first checklist experience from Checklist, but changes the storage model so your self-hosted getme server is the source of truth.
 
 ## Features
@@ -30,7 +32,7 @@ The watch keeps a local copy only as a last-known display state. getme remains t
 
 ## Setup
 
-1. Install or build getme for Pebble on your watch.
+1. Install getme for Pebble from the Pebble app store, or build it locally.
 2. Open the app settings in the Pebble/Rebble companion app.
 3. Set the full URL to your getme install.
 
