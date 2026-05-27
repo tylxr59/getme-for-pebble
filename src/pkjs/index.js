@@ -26,7 +26,20 @@ function value(payload, numericKey, name) {
 function normalizeGetmeUrl(url) {
   url = String(url || '').replace(/^\s+|\s+$/g, '');
   if (!/^https?:\/\//i.test(url)) return '';
+  if (url.indexOf('?') === -1 && url.indexOf('#') === -1 &&
+      !/\/$/.test(url) && !/\/[^\/]+\.[^\/]+$/.test(url)) {
+    url += '/';
+  }
   return url;
+}
+
+function formEncode(data) {
+  var parts = [];
+  Object.keys(data).forEach(function (key) {
+    if (data[key] === undefined || data[key] === null) return;
+    parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(data[key]));
+  });
+  return parts.join('&');
 }
 
 function getConfiguredUrl() {
@@ -78,7 +91,7 @@ function postGetme(action, payload, callback) {
   }, 20000);
 
   req.open('POST', url, true);
-  req.setRequestHeader('Content-Type', 'application/json');
+  req.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
 
   req.onload = function () {
     if (finished) return;
@@ -108,7 +121,7 @@ function postGetme(action, payload, callback) {
 
   var body = payload || {};
   body.action = action;
-  req.send(JSON.stringify(body));
+  req.send(formEncode(body));
 }
 
 function sendItems(items) {
