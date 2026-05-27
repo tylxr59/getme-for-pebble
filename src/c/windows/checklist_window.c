@@ -5,6 +5,7 @@
 
 #include "checklist_window.h"
 #include "../checklist.h"
+#include "../messaging.h"
 #include "../util.h"
 #include "dialog_message_window.h"
 
@@ -27,6 +28,7 @@ static char s_last_text[512];
 
 // buffer to hold alert message
 static char s_deleted_msg[30];
+static char s_error_msg[64];
 
 static void draw_add_button(GContext *ctx, Layer *cell_layer) {
   GRect bounds = layer_get_bounds(cell_layer);
@@ -59,8 +61,7 @@ static void dictation_session_callback(DictationSession *session,
   APP_LOG(APP_LOG_LEVEL_INFO, "Dictation status: %d", (int)status);
 
   if (status == DictationSessionStatusSuccess) {
-    checklist_add_items(transcription);
-    menu_layer_reload_data(s_menu_layer);
+    messaging_send_add_request(transcription);
   }
 }
 
@@ -260,7 +261,7 @@ static void select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index,
       dictation_session_start(s_dictation_session);
     } else {
       dialog_settings_window_push(
-          "Add items via the settings page on your phone.");
+          "Use phone settings to configure GetMe.");
     }
   } else if (cell_index->row == checklist_get_num_items() + 1) {
     // the last row is always the "clear completed" button
@@ -275,11 +276,13 @@ static void select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index,
     dialog_shred_window_push(s_deleted_msg);
     checklist_delete_completed_items();
     menu_layer_reload_data(menu_layer);
+    messaging_send_clear_checked_request();
 
   } else {
     int id = cell_index->row - 1;
     checklist_item_toggle_checked(id);
-
+    messaging_send_toggle_request(checklist_get_server_id(id),
+                                  checklist_get_item_by_id(id)->is_checked);
     menu_layer_reload_data(menu_layer);
   }
 }
@@ -349,6 +352,8 @@ static void window_load(Window *window) {
   text_layer_set_font(s_empty_msg_layer,
                       fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   layer_add_child(window_layer, text_layer_get_layer(s_empty_msg_layer));
+
+  messaging_send_fetch_request();
 }
 
 static void window_unload(Window *window) {
@@ -382,6 +387,10 @@ void checklist_window_push() {
 }
 
 void checklist_window_refresh() {
+  if (messaging_consume_last_error(s_error_msg, sizeof(s_error_msg))) {
+    dialog_settings_window_push(s_error_msg);
+  }
+
   if (s_menu_layer != NULL) {
     menu_layer_reload_data(s_menu_layer);
   }

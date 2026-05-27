@@ -1,25 +1,62 @@
-# PebbleChecklist
+# getme for Pebble
 
 <img src="demo_animation.gif" width="144" height="168">
 
-A checklist—on your watch!
+getme for Pebble is a Pebble watch app for [getme](https://github.com/tylxr59/getme), a dead-simple self-hosted grocery list.
 
-Keep track of anything on your wrist! Designed to stay out of your way, use Checklist to keep track of anything you need without needing to hold your phone.
+This is a new Pebble app based on a fork of [Checklist](https://github.com/freakified/PebbleChecklist). It keeps the fast, button-first checklist experience from Checklist, but changes the storage model so your self-hosted getme server is the source of truth.
 
-Using either the Pebble microphone or the fully-offline app settings page, add and manage your very own tiny checklist!
+## Features
 
-Grocery shopping will never be the same.
+- Syncs your getme list to a Pebble watch
+- Shows the last synced list when the phone or server is unavailable
+- Adds new grocery items with Pebble dictation
+- Toggles items checked or unchecked from the watch
+- Clears checked items from getme
+- Uses a Clay settings page for the getme server URL
+- Builds as its own app with a separate UUID from Checklist, so both apps can coexist
 
-## Special build instructions
+## How It Works
 
-To build the local config page, run `node buildConfigPage.js` from the project root. This should be done before `pebble build`.
+getme for Pebble talks to getme through PebbleKitJS on the paired phone. The watch sends add, toggle, clear, and refresh requests to the phone; the phone calls the getme JSON API; then the watch receives a fresh copy of the server list.
 
-## Want to try it?
+The watch keeps a local copy only as a last-known display state. getme remains the canonical list.
 
-Grab it from the Pebble app store:
+## Related Repos
 
-### Pebble Store
-<https://apps.repebble.com/5620e876768e7ada4e00007a>
+- getme web app/API: <https://github.com/tylxr59/getme>
+- getme for Pebble watch app: <https://github.com/tylxr59/getme-for-pebble>
+- Original Checklist app: <https://github.com/freakified/PebbleChecklist>
 
-### Rebble Store
-<https://apps.rebble.io/en_US/application/5620e876768e7ada4e00007a>
+## Setup
+
+1. Install or build getme for Pebble on your watch.
+2. Open the app settings in the Pebble/Rebble companion app.
+3. Set the full URL to your getme install.
+
+Example:
+
+```text
+https://example.com/getme/
+```
+
+The URL should point to the same page or directory you use in a browser.
+
+## Controls
+
+- Select the plus row to add an item by dictation.
+- Select an item to toggle it checked or unchecked.
+- Select "Clear completed" to remove checked items from getme.
+
+## Build
+
+Install dependencies, then build with the Pebble SDK:
+
+```bash
+npm install
+pebble build
+```
+
+## Notes
+
+AI assistance was used during development for code review, UI polish, documentation drafting, and implementation support. The app behavior, configuration choices, and release decisions were reviewed by the project maintainer.

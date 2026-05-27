@@ -7,6 +7,9 @@
 #define MAX_CHECKLIST_ITEMS 52
 
 typedef struct ChecklistItem {
+  // stable id assigned by getme
+  int32_t server_id;
+
   // the name displayed for the item
   char name[MAX_NAME_LENGTH];
 
@@ -38,9 +41,19 @@ extern int checklist_get_num_items_checked();
 extern void checklist_add_items(char *name);
 
 /*
+ * Replaces the current list with items received from getme.
+ */
+extern void checklist_begin_replace();
+extern void checklist_add_remote_item(int32_t server_id, const char *name,
+                                      bool is_checked);
+extern void checklist_commit_replace();
+
+/*
  * Toggles whether or not the specified item is checked
  */
 extern void checklist_item_toggle_checked(int id);
+extern void checklist_item_set_checked(int id, bool is_checked);
+extern int32_t checklist_get_server_id(int id);
 
 /*
  * Deletes all completed items from the checklist

@@ -1,15 +1,17 @@
 {
-  "name": "checklist",
+  "name": "getme-for-pebble",
   "version": "2.3",
   "author": "Freakified",
   "private": true,
-  "dependencies": {},
+  "dependencies": {
+    "@rebble/clay": "^1.0.10"
+  },
   "keywords": [
     "pebble-app"
   ],
   "pebble": {
     "enableMultiJS": true,
-    "displayName": "Checklist",
+    "displayName": "getme for Pebble",
     "sdkVersion": "3",
     "resources": {
       "media": [
@@ -52,9 +54,20 @@
       ]
     },
     "projectType": "native",
-    "uuid": "b938082c-c230-4b8f-847d-15b27b1f907e",
+    "uuid": "8f3de597-2981-4c56-882f-a634b5988ee0",
     "messageKeys": {
-      "KEY_ITEMS_TO_ADD": 0
+      "KEY_FETCH_REQUEST": 0,
+      "KEY_ADD_REQUEST": 1,
+      "KEY_TOGGLE_REQUEST": 2,
+      "KEY_CLEAR_CHECKED_REQUEST": 3,
+      "KEY_ITEM_ID": 10,
+      "KEY_ITEM_NAME": 11,
+      "KEY_ITEM_CHECKED": 12,
+      "KEY_SYNC_BEGIN": 20,
+      "KEY_SYNC_ITEM": 21,
+      "KEY_SYNC_DONE": 22,
+      "KEY_SYNC_ERROR": 23,
+      "KEY_STATUS": 24
     },
     "watchapp": {
       "onlyShownOnCommunication": false,

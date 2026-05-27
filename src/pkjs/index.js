@@ -1,60 +1,225 @@
-var configUri = require('./configDataUri');
+var Clay = require('@rebble/clay');
+var clayConfig = require('./config');
+
+var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
+
+var KEY_FETCH_REQUEST = 0;
+var KEY_ADD_REQUEST = 1;
+var KEY_TOGGLE_REQUEST = 2;
+var KEY_CLEAR_CHECKED_REQUEST = 3;
+var KEY_ITEM_ID = 10;
+var KEY_ITEM_NAME = 11;
+var KEY_ITEM_CHECKED = 12;
+var KEY_SYNC_BEGIN = 20;
+var KEY_SYNC_ITEM = 21;
+var KEY_SYNC_DONE = 22;
+var KEY_SYNC_ERROR = 23;
+var KEY_STATUS = 24;
+
+function value(payload, numericKey, name) {
+  if (payload[numericKey] !== undefined) return payload[numericKey];
+  if (payload[String(numericKey)] !== undefined) return payload[String(numericKey)];
+  if (name && payload[name] !== undefined) return payload[name];
+  return undefined;
+}
+
+function normalizeGetmeUrl(url) {
+  url = String(url || '').replace(/^\s+|\s+$/g, '');
+  if (!/^https?:\/\//i.test(url)) return '';
+  return url;
+}
+
+function getConfiguredUrl() {
+  var raw = localStorage.getItem('getmeUrl') || '';
+  if (!raw) {
+    try {
+      var claySettings = JSON.parse(localStorage.getItem('clay-settings') || '{}');
+      raw = claySettings.getmeUrl || '';
+    } catch (e) {
+      raw = '';
+    }
+  }
+  return normalizeGetmeUrl(raw);
+}
+
+function sendMessage(dict, callback) {
+  Pebble.sendAppMessage(dict, function () {
+    if (callback) callback();
+  }, function () {
+    console.log('Failed to send AppMessage: ' + JSON.stringify(dict));
+    if (callback) callback();
+  });
+}
+
+function sendStatus(message) {
+  var dict = {};
+  dict[KEY_STATUS] = String(message || '').substring(0, 60);
+  sendMessage(dict);
+}
+
+function sendError(error) {
+  var message = error && error.message ? error.message : String(error || 'Sync failed');
+  var dict = {};
+  dict[KEY_SYNC_ERROR] = message.substring(0, 60);
+  sendMessage(dict);
+}
+
+function postGetme(action, payload, callback) {
+  var url = getConfiguredUrl();
+  if (!url) return callback(new Error('Set GetMe URL'));
+
+  var req = new XMLHttpRequest();
+  var finished = false;
+  var timer = setTimeout(function () {
+    if (finished) return;
+    finished = true;
+    try { req.abort(); } catch (e) {}
+    callback(new Error('Network timeout'));
+  }, 20000);
+
+  req.open('POST', url, true);
+  req.setRequestHeader('Content-Type', 'application/json');
+
+  req.onload = function () {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+
+    var data;
+    try {
+      data = JSON.parse(req.responseText);
+    } catch (e) {
+      return callback(new Error('Bad server response'));
+    }
+
+    if (req.status < 200 || req.status >= 300 || !data.success) {
+      return callback(new Error(data.error || ('HTTP ' + req.status)));
+    }
+
+    callback(null, data);
+  };
+
+  req.onerror = function () {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    callback(new Error('Network error'));
+  };
+
+  var body = payload || {};
+  body.action = action;
+  req.send(JSON.stringify(body));
+}
+
+function sendItems(items) {
+  var index = 0;
+  var begin = {};
+  begin[KEY_SYNC_BEGIN] = items.length;
+
+  sendMessage(begin, function () {
+    function sendNext() {
+      if (index >= items.length) {
+        var done = {};
+        done[KEY_SYNC_DONE] = 1;
+        sendMessage(done);
+        return;
+      }
+
+      var item = items[index];
+      var dict = {};
+      dict[KEY_SYNC_ITEM] = index;
+      dict[KEY_ITEM_ID] = parseInt(item.id, 10) || 0;
+      dict[KEY_ITEM_NAME] = String(item.name || '').substring(0, 89);
+      dict[KEY_ITEM_CHECKED] = Number(item.checked) === 1 ? 1 : 0;
+      index++;
+      sendMessage(dict, function () {
+        setTimeout(sendNext, 50);
+      });
+    }
+    sendNext();
+  });
+}
+
+function fetchList() {
+  sendStatus('Syncing');
+  postGetme('fetch', {}, function (err, data) {
+    if (err) return sendError(err);
+    if (!data.items || !data.items.length) return sendItems([]);
+    sendItems(data.items);
+  });
+}
+
+function addItem(name) {
+  name = String(name || '').replace(/^\s+|\s+$/g, '');
+  if (!name) return;
+  sendStatus('Adding');
+  postGetme('add', { name: name }, function (err) {
+    if (err) return sendError(err);
+    fetchList();
+  });
+}
+
+function toggleItem(id, checked) {
+  sendStatus('Saving');
+  postGetme('toggle', { id: id, checked: checked ? 1 : 0 }, function (err) {
+    if (err) return sendError(err);
+    fetchList();
+  });
+}
+
+function clearChecked() {
+  sendStatus('Clearing');
+  postGetme('clear_checked', {}, function (err) {
+    if (err) return sendError(err);
+    fetchList();
+  });
+}
 
 Pebble.addEventListener('ready', function () {
-  console.log('JS component loaded!');
+  console.log('getme for Pebble JS loaded');
 });
 
 Pebble.addEventListener('showConfiguration', function () {
-  console.log('Requesting current state from watch');
-  Pebble.sendAppMessage({ 1: 1 }, function () {
-    console.log('State request sent');
-  }, function () {
-    openConfigPage();
-  });
-});
-
-function openConfigPage(currentState) {
-  var url = configUri;
-  if (currentState) {
-    var stateStr = encodeURIComponent(JSON.stringify(currentState)).replace(/'/g, '%27');
-    url = url.replace('__CURRENT_STATE__', stateStr);
-  }
-  Pebble.openURL(url);
-}
-
-Pebble.addEventListener('appmessage', function (e) {
-  if (e.payload[2]) openConfigPage(e.payload[2]);
+  Pebble.openURL(clay.generateUrl());
 });
 
 Pebble.addEventListener('webviewclosed', function (e) {
-  var response = e.response;
-  var data = null;
-  if (response) {
-    // Unreasonable amount of checks to handle the myriad ways that URL encoded
-    // strings can get mangled
-    try {
-      data = JSON.parse(response);
-    } catch (e1) {
-      try {
-        data = JSON.parse(decodeURIComponent(response));
-      } catch (e2) {
-        try {
-          data = JSON.parse(decodeURIComponent(decodeURIComponent(response)));
-        } catch (e3) {
-          console.log('Failed to parse response data: ' + e3.message);
-        }
-      }
-    }
+  if (!e || !e.response) return;
+
+  clay.getSettings(e.response, false);
+  var url = getConfiguredUrl();
+  if (url) {
+    localStorage.setItem('getmeUrl', url);
+    fetchList();
+  } else {
+    localStorage.removeItem('getmeUrl');
+    sendError(new Error('Set GetMe URL'));
   }
-  if (!data) return console.log('No settings changed');
+});
 
-  var dict = {};
-  if (data.itemsToAdd) dict[0] = data.itemsToAdd;
-  if (data.itemUpdates) dict[3] = JSON.stringify(data.itemUpdates);
+Pebble.addEventListener('appmessage', function (e) {
+  var payload = e.payload || {};
 
-  Pebble.sendAppMessage(dict, function () {
-    console.log('Sent config data to Pebble');
-  }, function () {
-    console.log('Failed to send config data');
-  });
+  if (value(payload, KEY_FETCH_REQUEST, 'KEY_FETCH_REQUEST') !== undefined) {
+    fetchList();
+    return;
+  }
+
+  var addName = value(payload, KEY_ADD_REQUEST, 'KEY_ADD_REQUEST');
+  if (addName !== undefined) {
+    addItem(addName);
+    return;
+  }
+
+  if (value(payload, KEY_TOGGLE_REQUEST, 'KEY_TOGGLE_REQUEST') !== undefined) {
+    toggleItem(
+      value(payload, KEY_ITEM_ID, 'KEY_ITEM_ID'),
+      value(payload, KEY_ITEM_CHECKED, 'KEY_ITEM_CHECKED')
+    );
+    return;
+  }
+
+  if (value(payload, KEY_CLEAR_CHECKED_REQUEST, 'KEY_CLEAR_CHECKED_REQUEST') !== undefined) {
+    clearChecked();
+  }
 });
