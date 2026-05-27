@@ -1,7 +1,7 @@
 {
   "name": "getme-for-pebble",
-  "version": "2.3",
-  "author": "Freakified",
+  "version": "1.0",
+  "author": "tylxr",
   "private": true,
   "dependencies": {
     "@rebble/clay": "^1.0.10"
@@ -75,12 +75,7 @@
       "watchface": false
     },
     "targetPlatforms": [
-      "basalt",
-      "chalk",
-      "diorite",
-      "emery",
-      "flint",
-      "gabbro"
+      "emery"
     ],
     "capabilities": [
       "configurable"

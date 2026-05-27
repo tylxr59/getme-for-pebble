@@ -10,10 +10,21 @@ static void (*message_processed_callback)(void);
 static int s_expected_sync_items;
 static int s_received_sync_items;
 
+static void set_last_error(const char *message) {
+  snprintf(s_last_error, sizeof(s_last_error), "%s", message);
+  s_has_error = true;
+  s_has_status = false;
+
+  if (message_processed_callback) {
+    message_processed_callback();
+  }
+}
+
 static void send_simple_request(uint32_t key) {
   DictionaryIterator *iter;
   app_message_outbox_begin(&iter);
   if (!iter) {
+    set_last_error("Phone not ready");
     return;
   }
 
@@ -46,6 +57,7 @@ void messaging_send_add_request(const char *name) {
   DictionaryIterator *iter;
   app_message_outbox_begin(&iter);
   if (!iter) {
+    set_last_error("Phone not ready");
     return;
   }
 
@@ -55,17 +67,14 @@ void messaging_send_add_request(const char *name) {
 
 void messaging_send_toggle_request(int32_t server_id, bool is_checked) {
   if (server_id <= 0) {
-    snprintf(s_last_error, sizeof(s_last_error), "Sync before editing");
-    s_has_error = true;
-    if (message_processed_callback) {
-      message_processed_callback();
-    }
+    set_last_error("Sync before editing");
     return;
   }
 
   DictionaryIterator *iter;
   app_message_outbox_begin(&iter);
   if (!iter) {
+    set_last_error("Phone not ready");
     return;
   }
 
@@ -171,12 +180,14 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
 
 void inbox_dropped_callback(AppMessageResult reason, void *context) {
   APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped!");
+  set_last_error("Message dropped");
 }
 
 void outbox_failed_callback(DictionaryIterator *iterator,
                             AppMessageResult reason, void *context) {
   APP_LOG(APP_LOG_LEVEL_ERROR, "Outbox send failed! %d %d %d", reason,
           APP_MSG_SEND_TIMEOUT, APP_MSG_SEND_REJECTED);
+  set_last_error("Phone send failed");
 }
 
 void outbox_sent_callback(DictionaryIterator *iterator, void *context) {

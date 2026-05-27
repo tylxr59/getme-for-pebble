@@ -27,8 +27,7 @@ static DictationSession *s_dictation_session;
 // Declare a buffer for the DictationSession
 static char s_last_text[512];
 
-// buffer to hold alert message
-static char s_deleted_msg[30];
+// buffer to hold alert messages
 static char s_error_msg[64];
 static char s_status_msg[64];
 static GRect s_menu_default_frame;
@@ -286,25 +285,13 @@ static void select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index,
     }
   } else if (cell_index->row == checklist_get_num_items() + 1) {
     // the last row is always the "clear completed" button
-    int num_deleted = checklist_get_num_items_checked();
-
-    // generate and display "items deleted" message
-    snprintf(s_deleted_msg, sizeof(s_deleted_msg),
-             ((num_deleted == 1) ? "%i Item Deleted" : "%i Items Deleted"),
-             num_deleted);
-
-    // do stuff
-    dialog_shred_window_push(s_deleted_msg);
-    checklist_delete_completed_items();
-    menu_layer_reload_data(menu_layer);
     messaging_send_clear_checked_request();
 
   } else {
     int id = cell_index->row - 1;
-    checklist_item_toggle_checked(id);
+    ChecklistItem *item = checklist_get_item_by_id(id);
     messaging_send_toggle_request(checklist_get_server_id(id),
-                                  checklist_get_item_by_id(id)->is_checked);
-    menu_layer_reload_data(menu_layer);
+                                  !item->is_checked);
   }
 }
 

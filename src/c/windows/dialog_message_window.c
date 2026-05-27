@@ -25,6 +25,11 @@ static GColor s_background_color;
 
 // animation code
 static void next_frame_handler(void *context) {
+  if (s_canvas_layer == NULL) {
+    s_timer = NULL;
+    return;
+  }
+
   // Draw the next frame
   layer_mark_dirty(s_canvas_layer);
 
@@ -57,6 +62,7 @@ static void update_proc(Layer *layer, GContext *ctx) {
     //if we run out of frames, stop the animation
     if(s_timer != NULL) {
       app_timer_cancel(s_timer);
+      s_timer = NULL;
     }
     window_stack_pop(true);
   }
@@ -116,31 +122,40 @@ static void window_load(Window *window) {
 static void window_unload(Window *window) {
   if(s_canvas_layer != NULL) {
     layer_destroy(s_canvas_layer);
+    s_canvas_layer = NULL;
   }
 
   if(s_label_layer != NULL) {
     text_layer_destroy(s_label_layer);
+    s_label_layer = NULL;
   }
 
   if(s_icon_bitmap != NULL) {
     gbitmap_destroy(s_icon_bitmap);
+    s_icon_bitmap = NULL;
   }
 
   if(s_icon_layer != NULL) {
     bitmap_layer_destroy(s_icon_layer);
+    s_icon_layer = NULL;
   }
 
   if(s_command_seq != NULL) {
     gdraw_command_sequence_destroy(s_command_seq);
+    s_command_seq = NULL;
   }
 
   if(s_timer != NULL) {
     app_timer_cancel(s_timer);
+    s_timer = NULL;
   }
 
   layer_destroy(s_background_layer);
+  s_background_layer = NULL;
   window_destroy(window);
   s_main_window = NULL;
+  s_message_text = NULL;
+  s_current_frame_idx = 0;
 }
 
 void dialog_shred_window_push(char *message) {

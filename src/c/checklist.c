@@ -261,7 +261,8 @@ int checklist_delete_completed_items() {
 
   while (i < s_checklist_length) {
     if(s_checklist_items[i].is_checked) {
-      memmove(&s_checklist_items[i], &s_checklist_items[i+1], sizeof(s_checklist_items[0])*(s_checklist_length - i));
+      memmove(&s_checklist_items[i], &s_checklist_items[i + 1],
+              sizeof(s_checklist_items[0]) * (s_checklist_length - i - 1));
       num_deleted++;
       s_checklist_length--;
     } else {
