@@ -47,6 +47,7 @@ extern void checklist_begin_replace();
 extern void checklist_add_remote_item(int32_t server_id, const char *name,
                                       bool is_checked);
 extern void checklist_commit_replace();
+extern void checklist_cancel_replace();
 
 /*
  * Toggles whether or not the specified item is checked

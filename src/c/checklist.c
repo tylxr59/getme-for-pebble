@@ -11,9 +11,13 @@
 #define PERSIST_KEY_CHECKLIST_BLOCK_FIRST  300
 
 static ChecklistItem s_checklist_items[MAX_CHECKLIST_ITEMS];
+static ChecklistItem s_replace_items[MAX_CHECKLIST_ITEMS];
 
 static int s_checklist_length;
 static int s_checklist_num_checked;
+static int s_replace_length;
+static int s_replace_num_checked;
+static bool s_replace_in_progress;
 
 // storage parameters
 static int s_items_per_block;
@@ -176,31 +180,51 @@ void add_item(char *name) {
 }
 
 void checklist_begin_replace() {
-  checklist_clear();
+  s_replace_length = 0;
+  s_replace_num_checked = 0;
+  s_replace_in_progress = true;
 }
 
 void checklist_add_remote_item(int32_t server_id, const char *name,
                                bool is_checked) {
-  if (s_checklist_length >= MAX_CHECKLIST_ITEMS || name == NULL ||
+  if (!s_replace_in_progress) {
+    checklist_begin_replace();
+  }
+
+  if (s_replace_length >= MAX_CHECKLIST_ITEMS || name == NULL ||
       strlen(name) == 0) {
     return;
   }
 
-  s_checklist_items[s_checklist_length].server_id = server_id;
-  strncpy(s_checklist_items[s_checklist_length].name, name, MAX_NAME_LENGTH - 1);
-  s_checklist_items[s_checklist_length].name[MAX_NAME_LENGTH - 1] = '\0';
-  s_checklist_items[s_checklist_length].is_checked = is_checked;
-  s_checklist_items[s_checklist_length].sublist_id = 0;
+  s_replace_items[s_replace_length].server_id = server_id;
+  strncpy(s_replace_items[s_replace_length].name, name, MAX_NAME_LENGTH - 1);
+  s_replace_items[s_replace_length].name[MAX_NAME_LENGTH - 1] = '\0';
+  s_replace_items[s_replace_length].is_checked = is_checked;
+  s_replace_items[s_replace_length].sublist_id = 0;
 
   if (is_checked) {
-    s_checklist_num_checked++;
+    s_replace_num_checked++;
   }
 
-  s_checklist_length++;
+  s_replace_length++;
 }
 
 void checklist_commit_replace() {
+  if (s_replace_in_progress) {
+    memcpy(s_checklist_items, s_replace_items,
+           sizeof(ChecklistItem) * s_replace_length);
+    s_checklist_length = s_replace_length;
+    s_checklist_num_checked = s_replace_num_checked;
+    s_replace_in_progress = false;
+  }
+
   save_data_to_storage();
+}
+
+void checklist_cancel_replace() {
+  s_replace_length = 0;
+  s_replace_num_checked = 0;
+  s_replace_in_progress = false;
 }
 
 void checklist_item_toggle_checked(int id) {

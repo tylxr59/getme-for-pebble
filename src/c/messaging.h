@@ -29,3 +29,4 @@ void messaging_send_add_request(const char *name);
 void messaging_send_toggle_request(int32_t server_id, bool is_checked);
 void messaging_send_clear_checked_request();
 bool messaging_consume_last_error(char *buffer, size_t buffer_size);
+bool messaging_get_status(char *buffer, size_t buffer_size);

@@ -145,16 +145,14 @@ function sendItems(items) {
       dict[KEY_ITEM_NAME] = String(item.name || '').substring(0, 89);
       dict[KEY_ITEM_CHECKED] = Number(item.checked) === 1 ? 1 : 0;
       index++;
-      sendMessage(dict, function () {
-        setTimeout(sendNext, 50);
-      });
+      sendMessage(dict, sendNext);
     }
     sendNext();
   });
 }
 
 function fetchList() {
-  sendStatus('Syncing');
+  sendStatus('Refreshing data');
   postGetme('fetch', {}, function (err, data) {
     if (err) return sendError(err);
     if (!data.items || !data.items.length) return sendItems([]);

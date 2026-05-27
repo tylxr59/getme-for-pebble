@@ -12,6 +12,7 @@
 static Window *s_main_window;
 static MenuLayer *s_menu_layer;
 static StatusBarLayer *s_status_bar;
+static TextLayer *s_status_msg_layer;
 static TextLayer *s_empty_msg_layer;
 
 static GBitmap *s_tick_black_bitmap;
@@ -29,6 +30,26 @@ static char s_last_text[512];
 // buffer to hold alert message
 static char s_deleted_msg[30];
 static char s_error_msg[64];
+static char s_status_msg[64];
+static GRect s_menu_default_frame;
+static GRect s_menu_status_frame;
+
+#define STATUS_MSG_HEIGHT 24
+
+static void set_status_message(const char *message) {
+  if (s_status_msg_layer == NULL || s_menu_layer == NULL) {
+    return;
+  }
+
+  bool has_message = message != NULL && strlen(message) > 0;
+  layer_set_hidden(text_layer_get_layer(s_status_msg_layer), !has_message);
+  layer_set_frame(menu_layer_get_layer(s_menu_layer),
+                  has_message ? s_menu_status_frame : s_menu_default_frame);
+
+  if (has_message) {
+    text_layer_set_text(s_status_msg_layer, message);
+  }
+}
 
 static void draw_add_button(GContext *ctx, Layer *cell_layer) {
   GRect bounds = layer_get_bounds(cell_layer);
@@ -300,6 +321,11 @@ static void window_load(Window *window) {
   GRect bounds = GRect(0, STATUS_BAR_LAYER_HEIGHT, windowBounds.size.w,
                        windowBounds.size.h - STATUS_BAR_LAYER_HEIGHT);
 #endif
+  s_menu_default_frame = bounds;
+  s_menu_status_frame =
+      GRect(0, STATUS_BAR_LAYER_HEIGHT + STATUS_MSG_HEIGHT,
+            windowBounds.size.w,
+            windowBounds.size.h - STATUS_BAR_LAYER_HEIGHT - STATUS_MSG_HEIGHT);
 
   s_text_att = graphics_text_attributes_create();
 
@@ -338,6 +364,18 @@ static void window_load(Window *window) {
 
   status_bar_layer_set_colors(s_status_bar, BG_COLOR, GColorBlack);
 
+  s_status_msg_layer =
+      text_layer_create(GRect(0, STATUS_BAR_LAYER_HEIGHT, windowBounds.size.w,
+                              STATUS_MSG_HEIGHT));
+  text_layer_set_text(s_status_msg_layer, "");
+  text_layer_set_background_color(s_status_msg_layer, GColorArmyGreen);
+  text_layer_set_text_color(s_status_msg_layer, GColorWhite);
+  text_layer_set_text_alignment(s_status_msg_layer, GTextAlignmentCenter);
+  text_layer_set_font(s_status_msg_layer,
+                      fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
+  layer_set_hidden(text_layer_get_layer(s_status_msg_layer), true);
+  layer_add_child(window_layer, text_layer_get_layer(s_status_msg_layer));
+
   // Create dictation session
   s_dictation_session = dictation_session_create(
       sizeof(s_last_text), dictation_session_callback, NULL);
@@ -363,6 +401,7 @@ static void window_unload(Window *window) {
 
   menu_layer_destroy(s_menu_layer);
   status_bar_layer_destroy(s_status_bar);
+  text_layer_destroy(s_status_msg_layer);
   text_layer_destroy(s_empty_msg_layer);
   dictation_session_destroy(s_dictation_session);
 
@@ -387,6 +426,12 @@ void checklist_window_push() {
 }
 
 void checklist_window_refresh() {
+  if (messaging_get_status(s_status_msg, sizeof(s_status_msg))) {
+    set_status_message(s_status_msg);
+  } else {
+    set_status_message(NULL);
+  }
+
   if (messaging_consume_last_error(s_error_msg, sizeof(s_error_msg))) {
     dialog_settings_window_push(s_error_msg);
   }
