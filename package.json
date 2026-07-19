@@ -2,7 +2,13 @@
   "name": "getme-for-pebble",
   "version": "1.0",
   "author": "tylxr",
+  "description": "Pebble Time 2 client for a self-hosted getme grocery list.",
   "private": true,
+  "scripts": {
+    "build": "pebble build",
+    "clean": "pebble clean",
+    "install:emery": "pebble install --emulator emery --vnc"
+  },
   "dependencies": {
     "@rebble/clay": "^1.0.10"
   },

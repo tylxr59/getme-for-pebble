@@ -1,10 +1,12 @@
 # getme for Pebble
 
-<img src="demo_animation.gif" width="144" height="168">
-
 getme for Pebble is a Pebble watch app for [getme](https://github.com/tylxr59/getme), a dead-simple self-hosted grocery list.
 
-Install it from the Pebble app store: <https://apps.repebble.com/6f7de6d295fa464aa9bc7ab8>
+## Install
+
+Install getme for Pebble from the [Pebble Appstore](https://apps.repebble.com/6f7de6d295fa464aa9bc7ab8), or download a tagged PBW from [GitHub Releases](https://github.com/tylxr59/getme-for-pebble/releases).
+
+<img src="demo_animation.gif" alt="getme for Pebble demo" width="144" height="168">
 
 This is a new Pebble app based on a fork of [Checklist](https://github.com/freakified/PebbleChecklist). It keeps the fast, button-first checklist experience from Checklist, but changes the storage model so your self-hosted getme server is the source of truth.
 
@@ -23,6 +25,12 @@ This is a new Pebble app based on a fork of [Checklist](https://github.com/freak
 getme for Pebble talks to getme through PebbleKitJS on the paired phone. The watch sends add, toggle, clear, and refresh requests to the phone; the phone calls the getme JSON API; then the watch receives a fresh copy of the server list.
 
 The watch keeps a local copy only as a last-known display state. getme remains the canonical list.
+
+## Requirements
+
+- Pebble Time 2 / `emery`
+- A self-hosted [getme](https://github.com/tylxr59/getme) server reachable from the paired phone
+- Pebble SDK / Pebble Tool, only when building locally
 
 ## Related Repos
 
@@ -50,14 +58,49 @@ The URL should point to the same page or directory you use in a browser.
 - Select an item to toggle it checked or unchecked.
 - Select "Clear completed" to remove checked items from getme.
 
-## Build
+## Troubleshooting
+
+- If the list does not sync, confirm the paired phone can open the configured getme URL.
+- If the app shows stale items, open it with the phone connected to trigger another sync.
+- Include the full getme path in settings, including any subdirectory used by the browser version.
+
+## Development
 
 Install dependencies, then build with the Pebble SDK:
 
 ```bash
-npm install
-pebble build
+npm ci
+npm run build
 ```
+
+The compiled package is written to `build/getme-for-pebble.pbw`.
+
+Install it in the Time 2 emulator with:
+
+```bash
+npm run install:emery
+```
+
+## Releases
+
+Pushing a version tag such as `v1.0` runs the GitHub Actions release workflow. The workflow verifies that the tag matches `package.json`, builds the PBW, uploads it as a workflow artifact, and attaches it to the matching GitHub Release.
+
+To repair a missing or outdated PBW for an existing tag, open **Actions → Release PBW → Run workflow** and enter that tag. Manual runs check out the exact tag before rebuilding and replacing the release asset. Release current code with a new version and tag instead of reusing an older tag.
+
+## Project Layout
+
+```text
+src/c/                 Pebble C app, windows, and list behavior
+src/pkjs/              PebbleKitJS bridge and Clay settings
+resources/images/      Menu and interface graphics
+package.json           Pebble metadata, scripts, and message keys
+wscript                Pebble SDK build script
+pebble-appstore.md     Version-controlled Pebble Appstore listing copy
+```
+
+## License
+
+getme for Pebble is licensed under the [MIT License](LICENSE). It is based on [Checklist](https://github.com/freakified/PebbleChecklist); see the repository history and license for attribution.
 
 ## Notes
 
