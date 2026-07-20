@@ -2,12 +2,13 @@
 #include "windows/checklist_window.h"
 #include "messaging.h"
 
-static void init() {
+static void init(void) {
   messaging_init(checklist_window_refresh);
   checklist_window_push();
 }
 
-static void deinit() {
+static void deinit(void) {
+  messaging_deinit();
 }
 
 int main(void) {

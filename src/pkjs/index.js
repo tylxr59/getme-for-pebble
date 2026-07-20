@@ -1,25 +1,38 @@
 var Clay = require('@rebble/clay');
 var clayConfig = require('./config');
+var messageKeys = require('message_keys');
 
 var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
-var KEY_FETCH_REQUEST = 0;
-var KEY_ADD_REQUEST = 1;
-var KEY_TOGGLE_REQUEST = 2;
-var KEY_CLEAR_CHECKED_REQUEST = 3;
-var KEY_ITEM_ID = 10;
-var KEY_ITEM_NAME = 11;
-var KEY_ITEM_CHECKED = 12;
-var KEY_SYNC_BEGIN = 20;
-var KEY_SYNC_ITEM = 21;
-var KEY_SYNC_DONE = 22;
-var KEY_SYNC_ERROR = 23;
-var KEY_STATUS = 24;
+var MAX_CHECKLIST_ITEMS = 52;
 
-function value(payload, numericKey, name) {
-  if (payload[numericKey] !== undefined) return payload[numericKey];
-  if (payload[String(numericKey)] !== undefined) return payload[String(numericKey)];
-  if (name && payload[name] !== undefined) return payload[name];
+var KEY_FETCH_REQUEST = messageKeys.KEY_FETCH_REQUEST;
+var KEY_ADD_REQUEST = messageKeys.KEY_ADD_REQUEST;
+var KEY_TOGGLE_REQUEST = messageKeys.KEY_TOGGLE_REQUEST;
+var KEY_CLEAR_CHECKED_REQUEST = messageKeys.KEY_CLEAR_CHECKED_REQUEST;
+var KEY_REQUEST_SEQ = messageKeys.KEY_REQUEST_SEQ;
+var KEY_CONFIG_CHANGED = messageKeys.KEY_CONFIG_CHANGED;
+var KEY_PHONE_READY = messageKeys.KEY_PHONE_READY;
+var KEY_ITEM_ID = messageKeys.KEY_ITEM_ID;
+var KEY_ITEM_NAME = messageKeys.KEY_ITEM_NAME;
+var KEY_ITEM_CHECKED = messageKeys.KEY_ITEM_CHECKED;
+var KEY_ITEM_INDEX = messageKeys.KEY_ITEM_INDEX;
+var KEY_SYNC_BEGIN = messageKeys.KEY_SYNC_BEGIN;
+var KEY_SYNC_ITEM = messageKeys.KEY_SYNC_ITEM;
+var KEY_SYNC_DONE = messageKeys.KEY_SYNC_DONE;
+var KEY_SYNC_ERROR = messageKeys.KEY_SYNC_ERROR;
+var KEY_STATUS = messageKeys.KEY_STATUS;
+
+var requestQueue = [];
+var requestActive = false;
+
+function payloadValue(payload, name) {
+  if (payload[name] !== undefined) return payload[name];
+  var key = messageKeys[name];
+  if (key !== undefined && payload[key] !== undefined) return payload[key];
+  if (key !== undefined && payload[String(key)] !== undefined) {
+    return payload[String(key)];
+  }
   return undefined;
 }
 
@@ -31,15 +44,6 @@ function normalizeGetmeUrl(url) {
     url += '/';
   }
   return url;
-}
-
-function formEncode(data) {
-  var parts = [];
-  Object.keys(data).forEach(function (key) {
-    if (data[key] === undefined || data[key] === null) return;
-    parts.push(encodeURIComponent(key) + '=' + encodeURIComponent(data[key]));
-  });
-  return parts.join('&');
 }
 
 function getConfiguredUrl() {
@@ -57,24 +61,39 @@ function getConfiguredUrl() {
 
 function sendMessage(dict, callback) {
   Pebble.sendAppMessage(dict, function () {
-    if (callback) callback();
+    if (callback) callback(null);
   }, function () {
     console.log('Failed to send AppMessage: ' + JSON.stringify(dict));
-    if (callback) callback();
+    if (callback) callback(new Error('Phone transfer failed'));
   });
 }
 
-function sendStatus(message) {
+function notifyWatch(key, attemptsRemaining) {
   var dict = {};
-  dict[KEY_STATUS] = String(message || '').substring(0, 60);
-  sendMessage(dict);
+  dict[key] = 1;
+  sendMessage(dict, function (err) {
+    if (err && attemptsRemaining > 1) {
+      setTimeout(function () {
+        notifyWatch(key, attemptsRemaining - 1);
+      }, 500);
+    }
+  });
 }
 
-function sendError(error) {
-  var message = error && error.message ? error.message : String(error || 'Sync failed');
+function sendStatus(seq, message, callback) {
   var dict = {};
+  dict[KEY_REQUEST_SEQ] = seq;
+  dict[KEY_STATUS] = String(message || '').substring(0, 60);
+  sendMessage(dict, callback);
+}
+
+function sendError(seq, error, callback) {
+  var message = error && error.message ? error.message :
+    String(error || 'Sync failed');
+  var dict = {};
+  dict[KEY_REQUEST_SEQ] = seq;
   dict[KEY_SYNC_ERROR] = message.substring(0, 60);
-  sendMessage(dict);
+  sendMessage(dict, callback);
 }
 
 function postGetme(action, payload, callback) {
@@ -90,104 +109,158 @@ function postGetme(action, payload, callback) {
     callback(new Error('Network timeout'));
   }, 20000);
 
-  req.open('POST', url, true);
-  req.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-
-  req.onload = function () {
+  function finish(err, data) {
     if (finished) return;
     finished = true;
     clearTimeout(timer);
+    callback(err, data);
+  }
 
+  req.open('POST', url, true);
+  req.setRequestHeader('Content-Type', 'application/json');
+
+  req.onload = function () {
     var data;
     try {
       data = JSON.parse(req.responseText);
     } catch (e) {
-      return callback(new Error('Bad server response'));
+      if (req.status < 200 || req.status >= 300) {
+        return finish(new Error('HTTP ' + req.status));
+      }
+      return finish(new Error('Bad server response'));
     }
 
     if (req.status < 200 || req.status >= 300 || !data.success) {
-      return callback(new Error(data.error || ('HTTP ' + req.status)));
+      return finish(new Error(data.error || ('HTTP ' + req.status)));
     }
 
-    callback(null, data);
+    finish(null, data);
   };
 
   req.onerror = function () {
-    if (finished) return;
-    finished = true;
-    clearTimeout(timer);
-    callback(new Error('Network error'));
+    finish(new Error('Network error'));
   };
 
-  var body = payload || {};
-  body.action = action;
-  req.send(formEncode(body));
+  var body = { action: action };
+  Object.keys(payload || {}).forEach(function (key) {
+    body[key] = payload[key];
+  });
+  req.send(JSON.stringify(body));
 }
 
-function sendItems(items) {
+function sendItems(seq, items, callback) {
+  if (items.length > MAX_CHECKLIST_ITEMS) {
+    return callback(new Error('List has more than 52 items'));
+  }
+
   var index = 0;
   var begin = {};
+  begin[KEY_REQUEST_SEQ] = seq;
   begin[KEY_SYNC_BEGIN] = items.length;
 
-  sendMessage(begin, function () {
+  sendMessage(begin, function (beginError) {
+    if (beginError) return callback(beginError);
+
     function sendNext() {
       if (index >= items.length) {
         var done = {};
+        done[KEY_REQUEST_SEQ] = seq;
         done[KEY_SYNC_DONE] = 1;
-        sendMessage(done);
+        sendMessage(done, callback);
         return;
       }
 
       var item = items[index];
+      var itemId = parseInt(item.id, 10);
+      var itemName = String(item.name || '').substring(0, 89);
+      if (!(itemId > 0) || !itemName) {
+        return callback(new Error('Invalid server item'));
+      }
+
       var dict = {};
-      dict[KEY_SYNC_ITEM] = index;
-      dict[KEY_ITEM_ID] = parseInt(item.id, 10) || 0;
-      dict[KEY_ITEM_NAME] = String(item.name || '').substring(0, 89);
+      dict[KEY_REQUEST_SEQ] = seq;
+      dict[KEY_SYNC_ITEM] = 1;
+      dict[KEY_ITEM_INDEX] = index;
+      dict[KEY_ITEM_ID] = itemId;
+      dict[KEY_ITEM_NAME] = itemName;
       dict[KEY_ITEM_CHECKED] = Number(item.checked) === 1 ? 1 : 0;
       index++;
-      sendMessage(dict, sendNext);
+      sendMessage(dict, function (itemError) {
+        if (itemError) return callback(itemError);
+        sendNext();
+      });
     }
+
     sendNext();
   });
 }
 
-function fetchList() {
-  sendStatus('Refreshing data');
+function fetchAndSendList(seq, callback) {
   postGetme('fetch', {}, function (err, data) {
-    if (err) return sendError(err);
-    if (!data.items || !data.items.length) return sendItems([]);
-    sendItems(data.items);
+    if (err) return callback(err);
+    if (!data.items || !data.items.length) return sendItems(seq, [], callback);
+    sendItems(seq, data.items, callback);
   });
 }
 
-function addItem(name) {
-  name = String(name || '').replace(/^\s+|\s+$/g, '');
-  if (!name) return;
-  sendStatus('Adding');
-  postGetme('add', { name: name }, function (err) {
-    if (err) return sendError(err);
-    fetchList();
+function finishRequest() {
+  requestActive = false;
+  if (requestQueue.length) {
+    setTimeout(processNextRequest, 0);
+  }
+}
+
+function finishWithError(seq, error) {
+  sendError(seq, error, function () {
+    finishRequest();
   });
 }
 
-function toggleItem(id, checked) {
-  sendStatus('Saving');
-  postGetme('toggle', { id: id, checked: checked ? 1 : 0 }, function (err) {
-    if (err) return sendError(err);
-    fetchList();
+function finishWithList(seq) {
+  fetchAndSendList(seq, function (err) {
+    if (err) return finishWithError(seq, err);
+    finishRequest();
   });
 }
 
-function clearChecked() {
-  sendStatus('Clearing');
-  postGetme('clear_checked', {}, function (err) {
-    if (err) return sendError(err);
-    fetchList();
+function processNextRequest() {
+  if (requestActive || !requestQueue.length) return;
+
+  requestActive = true;
+  var request = requestQueue.shift();
+  var status = request.type === 'fetch' ? 'Refreshing data' :
+    request.type === 'add' ? 'Adding' :
+    request.type === 'toggle' ? 'Saving' : 'Clearing';
+
+  sendStatus(request.seq, status, function (statusError) {
+    if (statusError) {
+      finishRequest();
+      return;
+    }
+
+    if (request.type === 'fetch') {
+      finishWithList(request.seq);
+      return;
+    }
+
+    var action = request.type === 'clear' ? 'clear_checked' : request.type;
+    postGetme(action, request.payload, function (err) {
+      if (err) return finishWithError(request.seq, err);
+      finishWithList(request.seq);
+    });
   });
+}
+
+function enqueueRequest(request) {
+  requestQueue.push(request);
+  processNextRequest();
 }
 
 Pebble.addEventListener('ready', function () {
+  var url = getConfiguredUrl();
+  if (url) localStorage.setItem('getmeUrl', url);
   console.log('getme for Pebble JS loaded');
+  notifyWatch(KEY_PHONE_READY, 3);
 });
 
 Pebble.addEventListener('showConfiguration', function () {
@@ -201,36 +274,46 @@ Pebble.addEventListener('webviewclosed', function (e) {
   var url = getConfiguredUrl();
   if (url) {
     localStorage.setItem('getmeUrl', url);
-    fetchList();
+    notifyWatch(KEY_CONFIG_CHANGED, 2);
   } else {
     localStorage.removeItem('getmeUrl');
-    sendError(new Error('Set GetMe URL'));
   }
 });
 
 Pebble.addEventListener('appmessage', function (e) {
   var payload = e.payload || {};
-
-  if (value(payload, KEY_FETCH_REQUEST, 'KEY_FETCH_REQUEST') !== undefined) {
-    fetchList();
+  var seq = Number(payloadValue(payload, 'KEY_REQUEST_SEQ'));
+  if (!(seq > 0)) {
+    console.log('Ignoring request without a valid sequence');
     return;
   }
 
-  var addName = value(payload, KEY_ADD_REQUEST, 'KEY_ADD_REQUEST');
+  if (payloadValue(payload, 'KEY_FETCH_REQUEST') !== undefined) {
+    enqueueRequest({ seq: seq, type: 'fetch', payload: {} });
+    return;
+  }
+
+  var addName = payloadValue(payload, 'KEY_ADD_REQUEST');
   if (addName !== undefined) {
-    addItem(addName);
+    addName = String(addName || '').replace(/^\s+|\s+$/g, '');
+    if (!addName) return finishWithError(seq, new Error('Item name is empty'));
+    enqueueRequest({ seq: seq, type: 'add', payload: { name: addName } });
     return;
   }
 
-  if (value(payload, KEY_TOGGLE_REQUEST, 'KEY_TOGGLE_REQUEST') !== undefined) {
-    toggleItem(
-      value(payload, KEY_ITEM_ID, 'KEY_ITEM_ID'),
-      value(payload, KEY_ITEM_CHECKED, 'KEY_ITEM_CHECKED')
-    );
+  if (payloadValue(payload, 'KEY_TOGGLE_REQUEST') !== undefined) {
+    var itemId = parseInt(payloadValue(payload, 'KEY_ITEM_ID'), 10);
+    if (!(itemId > 0)) return finishWithError(seq, new Error('Invalid item'));
+    var checked = payloadValue(payload, 'KEY_ITEM_CHECKED');
+    enqueueRequest({
+      seq: seq,
+      type: 'toggle',
+      payload: { id: itemId, checked: Number(checked) === 1 ? 1 : 0 }
+    });
     return;
   }
 
-  if (value(payload, KEY_CLEAR_CHECKED_REQUEST, 'KEY_CLEAR_CHECKED_REQUEST') !== undefined) {
-    clearChecked();
+  if (payloadValue(payload, 'KEY_CLEAR_CHECKED_REQUEST') !== undefined) {
+    enqueueRequest({ seq: seq, type: 'clear', payload: {} });
   }
 });

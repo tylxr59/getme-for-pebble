@@ -23,6 +23,7 @@ Features:
 - Toggle items checked or unchecked
 - Clear completed items from getme
 - Keeps showing your last synced list if your phone or server is unavailable
+- Protects the last good list from incomplete or stale syncs
 - Configure your getme URL from the Pebble/Rebble companion app
 
-Requires a running getme install and a configured server URL. Check it out at https://github.com/tylxr59/getme
+Requires a running getme install, a configured server URL, and a list of no more than 52 items. getme is intentionally unauthenticated, so use HTTPS and treat the configured URL as private. Check it out at https://github.com/tylxr59/getme

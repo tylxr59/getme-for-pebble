@@ -20,52 +20,29 @@ typedef struct ChecklistItem {
   uint8_t sublist_id;
 } ChecklistItem;
 
-extern void checklist_init();
-extern void checklist_deinit();
+extern void checklist_init(void);
+extern void checklist_deinit(void);
 
 /*
  * Returns the total number of checklist items
  */
-extern int checklist_get_num_items();
+extern int checklist_get_num_items(void);
 
 /*
  * Returns the total number of checked items
  */
-extern int checklist_get_num_items_checked();
-
-/*
- * Adds one or more items to the list.
- * Each item is identified by splitting the "name" string by a specific
- * character
- */
-extern void checklist_add_items(char *name);
+extern int checklist_get_num_items_checked(void);
 
 /*
  * Replaces the current list with items received from getme.
  */
-extern void checklist_begin_replace();
+extern void checklist_begin_replace(void);
 extern void checklist_add_remote_item(int32_t server_id, const char *name,
                                       bool is_checked);
-extern void checklist_commit_replace();
-extern void checklist_cancel_replace();
+extern void checklist_commit_replace(void);
+extern void checklist_cancel_replace(void);
 
-/*
- * Toggles whether or not the specified item is checked
- */
-extern void checklist_item_toggle_checked(int id);
-extern void checklist_item_set_checked(int id, bool is_checked);
 extern int32_t checklist_get_server_id(int id);
-
-/*
- * Deletes all completed items from the checklist
- * Returns the number of items that aren't deleted
- */
-extern int checklist_delete_completed_items();
-
-/*
- * Clears all items from the checklist
- */
-extern void checklist_clear();
 
 /*
  * Returns the checklist item referred to by the given id

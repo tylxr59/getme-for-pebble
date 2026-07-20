@@ -6,7 +6,6 @@
 #include "checklist_window.h"
 #include "../checklist.h"
 #include "../messaging.h"
-#include "../util.h"
 #include "dialog_message_window.h"
 
 static Window *s_main_window;
@@ -25,7 +24,7 @@ static GTextAttributes *s_text_att;
 static DictationSession *s_dictation_session;
 
 // Declare a buffer for the DictationSession
-static char s_last_text[512];
+static char s_last_text[MAX_NAME_LENGTH];
 
 // buffer to hold alert messages
 static char s_error_msg[64];
@@ -99,6 +98,9 @@ static void draw_checkbox_cell(GContext *ctx, Layer *cell_layer,
   int id = cell_index->row - 1;
 
   ChecklistItem *item = checklist_get_item_by_id(id);
+  if (item == NULL) {
+    return;
+  }
 
   GRect bounds = layer_get_bounds(cell_layer);
 
@@ -247,6 +249,9 @@ static int16_t get_cell_height_callback(struct MenuLayer *menu_layer,
     int id = cell_index->row - 1;
 
     ChecklistItem *item = checklist_get_item_by_id(id);
+    if (item == NULL) {
+      return CHECKLIST_CELL_MIN_HEIGHT;
+    }
 
     int screen_width =
         layer_get_bounds(window_get_root_layer(s_main_window)).size.w;
@@ -286,6 +291,9 @@ static void select_callback(struct MenuLayer *menu_layer, MenuIndex *cell_index,
   } else {
     int id = cell_index->row - 1;
     ChecklistItem *item = checklist_get_item_by_id(id);
+    if (item == NULL) {
+      return;
+    }
     messaging_send_toggle_request(checklist_get_server_id(id),
                                   !item->is_checked);
   }
@@ -296,8 +304,6 @@ static void window_load(Window *window) {
 
   Layer *window_layer = window_get_root_layer(window);
   GRect windowBounds = layer_get_bounds(window_layer);
-  ;
-
 #ifdef PBL_ROUND
   GRect bounds = windowBounds;
 #else
@@ -370,7 +376,6 @@ static void window_load(Window *window) {
                       fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD));
   layer_add_child(window_layer, text_layer_get_layer(s_empty_msg_layer));
 
-  messaging_send_fetch_request();
 }
 
 static void window_unload(Window *window) {
@@ -393,7 +398,7 @@ static void window_unload(Window *window) {
   s_main_window = NULL;
 }
 
-void checklist_window_push() {
+void checklist_window_push(void) {
   if (!s_main_window) {
     s_main_window = window_create();
     window_set_window_handlers(s_main_window, (WindowHandlers){
@@ -404,7 +409,7 @@ void checklist_window_push() {
   window_stack_push(s_main_window, true);
 }
 
-void checklist_window_refresh() {
+void checklist_window_refresh(void) {
   if (messaging_get_status(s_status_msg, sizeof(s_status_msg))) {
     set_status_message(s_status_msg);
   } else {

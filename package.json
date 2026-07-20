@@ -1,13 +1,14 @@
 {
   "name": "getme-for-pebble",
-  "version": "1.0",
+  "version": "1.1.0",
   "author": "tylxr",
   "description": "Pebble Time 2 client for a self-hosted getme grocery list.",
   "private": true,
   "scripts": {
     "build": "pebble build",
     "clean": "pebble clean",
-    "install:emery": "pebble install --emulator emery --vnc"
+    "install:emery": "pebble install --emulator emery --vnc",
+    "release:notes": "node tools/extract-release-notes.js"
   },
   "dependencies": {
     "@rebble/clay": "^1.0.10"
@@ -43,11 +44,6 @@
           "file": "images/add_black.png"
         },
         {
-          "type": "raw",
-          "name": "DELETED_SEQUENCE",
-          "file": "images/deleted_sequence.pdc"
-        },
-        {
           "type": "bitmap",
           "name": "ADD_WHITE",
           "file": "images/add_white.png"
@@ -66,9 +62,13 @@
       "KEY_ADD_REQUEST": 1,
       "KEY_TOGGLE_REQUEST": 2,
       "KEY_CLEAR_CHECKED_REQUEST": 3,
+      "KEY_REQUEST_SEQ": 4,
+      "KEY_CONFIG_CHANGED": 5,
+      "KEY_PHONE_READY": 6,
       "KEY_ITEM_ID": 10,
       "KEY_ITEM_NAME": 11,
       "KEY_ITEM_CHECKED": 12,
+      "KEY_ITEM_INDEX": 13,
       "KEY_SYNC_BEGIN": 20,
       "KEY_SYNC_ITEM": 21,
       "KEY_SYNC_DONE": 22,
