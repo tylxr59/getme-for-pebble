@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: source
+        working-directory: getme-for-pebble
     env:
       RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
@@ -34,14 +34,14 @@ jobs:
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-          path: source
+          path: getme-for-pebble
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
-          cache-dependency-path: source/package-lock.json
+          cache-dependency-path: getme-for-pebble/package-lock.json
 
       - name: Install uv
         run: |
@@ -83,7 +83,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: getme-for-pebble-pbw
-          path: source/build/*.pbw
+          path: getme-for-pebble/build/*.pbw
           if-no-files-found: error
 
       - name: Publish GitHub Release
