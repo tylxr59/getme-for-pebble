@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Fixed long item names being cut in the middle of accented characters or emoji.
 - Removed trailing periods from dictated item names.

@@ -1,6 +1,6 @@
 {
   "name": "getme-for-pebble",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "tylxr",
   "description": "Pebble Time 2 client for a self-hosted getme grocery list.",
   "private": true,
