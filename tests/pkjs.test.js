@@ -112,3 +112,45 @@ test('directory URLs receive a trailing slash before making a request', function
   app.listeners.appmessage({ payload: { KEY_FETCH_REQUEST: 1, KEY_REQUEST_SEQ: 1 } });
   assert.equal(app.requests[0].url, url);
 });
+
+test('synced names fit the UTF-8 byte limit without splitting characters', function () {
+  var app = bridge({ getmeUrl: url });
+  ['a'.repeat(90), 'é'.repeat(45), '€'.repeat(30), '🥑'.repeat(23),
+    'a'.repeat(88) + 'é', 'a'.repeat(87) + '🥑',
+    'a'.repeat(85) + '🥑', 'Milk.'].forEach(function (name) {
+    var error;
+    app.context.sendItems(1, [{ id: 1, name: name, checked: 0 }], function (err) {
+      error = err;
+    });
+    assert.equal(error, null);
+    var message = app.messages.filter(function (entry) {
+      return entry[keys.KEY_ITEM_NAME] !== undefined;
+    }).pop();
+    var actual = message[keys.KEY_ITEM_NAME];
+    var expected = '';
+    for (var character of name) {
+      if (Buffer.byteLength(expected + character, 'utf8') > 89) break;
+      expected += character;
+    }
+    assert.equal(actual, expected);
+  });
+});
+
+test('dictated additions lose only their trailing period and surrounding whitespace', function () {
+  [' Milk. ', 'Milk', 'St. John’s wort.', '.'].forEach(function (name) {
+    var app = bridge({ getmeUrl: url });
+    app.listeners.appmessage({ payload: {
+      KEY_ADD_REQUEST: name, KEY_REQUEST_SEQ: 1
+    } });
+    if (name === '.') {
+      assert.equal(app.requests.length, 0);
+      assert.ok(app.messages.some(function (message) {
+        return message[keys.KEY_SYNC_ERROR] === 'Item name is empty';
+      }));
+    } else {
+      assert.equal(app.requests[0].body.action, 'add');
+      assert.equal(app.requests[0].body.name,
+        name === 'St. John’s wort.' ? 'St. John’s wort' : 'Milk');
+    }
+  });
+});

@@ -5,6 +5,28 @@ var messageKeys = require('message_keys');
 var clay = new Clay(clayConfig, null, { autoHandleEvents: false });
 
 var MAX_CHECKLIST_ITEMS = 52;
+var MAX_NAME_BYTES = 89;
+
+// The watch's name buffer is measured in UTF-8 bytes, not JS characters.
+function truncateItemName(name) {
+  var bytes = 0;
+  var end = 0;
+  while (end < name.length) {
+    var code = name.charCodeAt(end);
+    var units = 1;
+    var size = code < 0x80 ? 1 : code < 0x800 ? 2 : 3;
+    if (code >= 0xD800 && code <= 0xDBFF && end + 1 < name.length &&
+        name.charCodeAt(end + 1) >= 0xDC00 &&
+        name.charCodeAt(end + 1) <= 0xDFFF) {
+      units = 2;
+      size = 4;
+    }
+    if (bytes + size > MAX_NAME_BYTES) break;
+    bytes += size;
+    end += units;
+  }
+  return name.substring(0, end);
+}
 
 var KEY_FETCH_REQUEST = messageKeys.KEY_FETCH_REQUEST;
 var KEY_ADD_REQUEST = messageKeys.KEY_ADD_REQUEST;
@@ -172,7 +194,7 @@ function sendItems(seq, items, callback) {
 
       var item = items[index];
       var itemId = parseInt(item.id, 10);
-      var itemName = String(item.name || '').substring(0, 89);
+      var itemName = truncateItemName(String(item.name || ''));
       if (!(itemId > 0) || !itemName) {
         return callback(new Error('Invalid server item'));
       }
@@ -296,6 +318,8 @@ Pebble.addEventListener('appmessage', function (e) {
   var addName = payloadValue(payload, 'KEY_ADD_REQUEST');
   if (addName !== undefined) {
     addName = String(addName || '').replace(/^\s+|\s+$/g, '');
+    // Dictation commonly appends sentence punctuation to grocery names.
+    addName = addName.replace(/\.$/, '').replace(/\s+$/g, '');
     if (!addName) return finishWithError(seq, new Error('Item name is empty'));
     enqueueRequest({ seq: seq, type: 'add', payload: { name: addName } });
     return;

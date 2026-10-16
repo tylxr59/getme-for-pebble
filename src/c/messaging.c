@@ -1,5 +1,6 @@
 #include "messaging.h"
 #include "checklist.h"
+#include "util.h"
 #include <message_keys.auto.h>
 #include <pebble.h>
 
@@ -175,6 +176,10 @@ void messaging_send_add_request(const char *name) {
   char truncated_name[MAX_NAME_LENGTH];
   strncpy(truncated_name, name, sizeof(truncated_name) - 1);
   truncated_name[sizeof(truncated_name) - 1] = '\0';
+  utf8_trim_partial(truncated_name);
+  if (truncated_name[0] == '\0') {
+    return;
+  }
 
   DictionaryIterator *iterator = NULL;
   if (!begin_request(&iterator)) {

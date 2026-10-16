@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed long item names being cut in the middle of accented characters or emoji.
+- Removed trailing periods from dictated item names.
+- Kept the list selection in range after a sync removes items.
 - Fixed server URL changes being ignored when a previous URL was cached, including switching from HTTP to HTTPS.
 - Fixed clearing an invalid server URL so it no longer restores the previous setting.
 

@@ -1,4 +1,5 @@
 #include "checklist.h"
+#include "util.h"
 
 // constants
 #define CURRENT_CHECKLIST_DATA_VERSION 4
@@ -238,6 +239,7 @@ void checklist_add_remote_item(int32_t server_id, const char *name,
   s_replace_items[s_replace_length].server_id = server_id;
   strncpy(s_replace_items[s_replace_length].name, name, MAX_NAME_LENGTH - 1);
   s_replace_items[s_replace_length].name[MAX_NAME_LENGTH - 1] = '\0';
+  utf8_trim_partial(s_replace_items[s_replace_length].name);
   s_replace_items[s_replace_length].is_checked = is_checked;
   s_replace_items[s_replace_length].sublist_id = 0;
 

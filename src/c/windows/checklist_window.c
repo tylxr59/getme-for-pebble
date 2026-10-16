@@ -422,5 +422,11 @@ void checklist_window_refresh(void) {
 
   if (s_menu_layer != NULL) {
     menu_layer_reload_data(s_menu_layer);
+    uint16_t num_rows = get_num_rows_callback(s_menu_layer, 0, NULL);
+    MenuIndex index = menu_layer_get_selected_index(s_menu_layer);
+    if (num_rows > 0 && index.row >= num_rows) {
+      menu_layer_set_selected_index(s_menu_layer, MenuIndex(0, num_rows - 1),
+                                    MenuRowAlignCenter, false);
+    }
   }
 }
