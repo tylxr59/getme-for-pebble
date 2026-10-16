@@ -47,16 +47,16 @@ function normalizeGetmeUrl(url) {
 }
 
 function getConfiguredUrl() {
-  var raw = localStorage.getItem('getmeUrl') || '';
-  if (!raw) {
-    try {
-      var claySettings = JSON.parse(localStorage.getItem('clay-settings') || '{}');
-      raw = claySettings.getmeUrl || '';
-    } catch (e) {
-      raw = '';
+  // Clay is the settings source of truth. The separate URL is a legacy cache
+  // and must not override a newly saved (or deliberately cleared) setting.
+  try {
+    var claySettings = JSON.parse(localStorage.getItem('clay-settings') || '{}');
+    if (claySettings &&
+        Object.prototype.hasOwnProperty.call(claySettings, 'getmeUrl')) {
+      return normalizeGetmeUrl(claySettings.getmeUrl);
     }
-  }
-  return normalizeGetmeUrl(raw);
+  } catch (e) {}
+  return normalizeGetmeUrl(localStorage.getItem('getmeUrl') || '');
 }
 
 function sendMessage(dict, callback) {

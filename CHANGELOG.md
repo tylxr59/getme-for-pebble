@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Fixed server URL changes being ignored when a previous URL was cached, including switching from HTTP to HTTPS.
+- Fixed clearing an invalid server URL so it no longer restores the previous setting.
+
 ## 1.1.0
 
 - Fixed list persistence at the 52-item limit and rejected damaged saved data safely.

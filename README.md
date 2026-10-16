@@ -66,6 +66,7 @@ database-protection guidance when exposing it outside a trusted network.
 ## Troubleshooting
 
 - **Set GetMe URL**: Open companion settings and enter the complete getme URL.
+- **Bad server response**: The server returned a successful HTTP response that was not valid JSON. Use the final HTTPS URL with a trailing slash (for example, `https://example.com/getme/`). HTTP or directory redirects can change the API POST into a GET and return the web page instead. Older app versions may keep using a previously saved URL after you change settings; update the app and save the correct URL again.
 - **Phone timeout** or **Message dropped**: Confirm the phone is connected, then reopen the app to retry. The last good list remains available.
 - **List has more than 52 items**: Reduce the getme list to 52 items or fewer, then reopen the app.
 - **Invalid server item** or **Invalid sync data**: Update getme and verify its JSON API returns positive item IDs and non-empty names.

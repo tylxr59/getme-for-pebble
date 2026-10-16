@@ -5,6 +5,7 @@
   "description": "Pebble Time 2 client for a self-hosted getme grocery list.",
   "private": true,
   "scripts": {
+    "test": "node --test tests/*.test.js",
     "build": "pebble build",
     "clean": "pebble clean",
     "install:emery": "pebble install --emulator emery --vnc",
