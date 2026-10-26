@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.3.0
 
 - Made checking items off instant: changes save in the background, so you can keep checking items without waiting.
 - Kept list rows in place while checking items off, so a background save no longer shifts the next item under the cursor.
