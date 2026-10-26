@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Made checking items off instant: changes save in the background, so you can keep checking items without waiting.
+- Kept list rows in place while checking items off, so a background save no longer shifts the next item under the cursor.
+- Restored an item's previous state and showed one error when a change cannot be saved.
+
 ## 1.2.0
 
 - Fixed long item names being cut in the middle of accented characters or emoji.

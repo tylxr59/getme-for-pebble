@@ -14,6 +14,7 @@ void outbox_sent_callback(DictionaryIterator *iterator, void *context);
 
 void messaging_send_fetch_request(void);
 void messaging_send_add_request(const char *name);
+// Updates the item on the watch immediately and saves it in the background.
 void messaging_send_toggle_request(int32_t server_id, bool is_checked);
 void messaging_send_clear_checked_request(void);
 bool messaging_consume_last_error(char *buffer, size_t buffer_size);

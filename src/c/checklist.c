@@ -250,8 +250,29 @@ void checklist_add_remote_item(int32_t server_id, const char *name,
   s_replace_length++;
 }
 
-void checklist_commit_replace(void) {
+// Moves received items that are already shown back into their current rows.
+// Items new to the watch follow in server order.
+static void keep_current_order(void) {
+  int next = 0;
+  for (int i = 0; i < s_checklist_length && next < s_replace_length; i++) {
+    for (int j = next; j < s_replace_length; j++) {
+      if (s_replace_items[j].server_id != s_checklist_items[i].server_id) {
+        continue;
+      }
+      ChecklistItem item = s_replace_items[j];
+      memmove(&s_replace_items[next + 1], &s_replace_items[next],
+              sizeof(ChecklistItem) * (j - next));
+      s_replace_items[next++] = item;
+      break;
+    }
+  }
+}
+
+void checklist_commit_replace(bool keep_order) {
   if (s_replace_in_progress) {
+    if (keep_order) {
+      keep_current_order();
+    }
     memcpy(s_checklist_items, s_replace_items,
            sizeof(ChecklistItem) * s_replace_length);
     s_checklist_length = s_replace_length;
@@ -282,4 +303,16 @@ int32_t checklist_get_server_id(int id) {
   }
 
   return s_checklist_items[id].server_id;
+}
+
+bool checklist_set_checked_by_server_id(int32_t server_id, bool is_checked) {
+  for (int i = 0; i < s_checklist_length; i++) {
+    if (s_checklist_items[i].server_id == server_id) {
+      s_checklist_items[i].is_checked = is_checked;
+      recount_checked_items();
+      return true;
+    }
+  }
+
+  return false;
 }

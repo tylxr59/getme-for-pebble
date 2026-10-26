@@ -8,7 +8,7 @@ var test = require('node:test');
 var keys = require('../package.json').pebble.messageKeys;
 var clayPath = path.join(path.dirname(require.resolve('@rebble/clay')), 'src/js/index.js');
 
-function bridge(saved) {
+function bridge(saved, respond) {
   var storage = Object.assign({}, saved);
   var listeners = {};
   var messages = [];
@@ -31,6 +31,7 @@ function bridge(saved) {
       this.setRequestHeader = function () {};
       this.send = function (body) {
         requests.push({ url: this.url, body: JSON.parse(body) });
+        if (respond) return respond(this, JSON.parse(body));
         // An HTTP redirect changes a POST to GET, returning the web page.
         this.status = 200;
         this.responseText = /^https:\/\//.test(this.url) ?
@@ -153,4 +154,101 @@ test('dictated additions lose only their trailing period and surrounding whitesp
         name === 'St. John’s wort.' ? 'St. John’s wort' : 'Milk');
     }
   });
+});
+
+function deferredServer() {
+  var server = { pending: [], items: [{ id: 1, name: 'Milk', checked: 0 },
+    { id: 2, name: 'Eggs', checked: 0 }], fail: {} };
+  server.respond = function (req, body) {
+    server.pending.push(function () {
+      var result = { success: true };
+      if (body.action === 'toggle') {
+        if (server.fail[body.id]) {
+          result = { success: false, error: 'Save failed' };
+        } else {
+          server.items.forEach(function (item) {
+            if (item.id === body.id) item.checked = body.checked;
+          });
+        }
+      } else if (body.action === 'fetch') {
+        result.items = JSON.parse(JSON.stringify(server.items));
+      }
+      req.status = 200;
+      req.responseText = JSON.stringify(result);
+      req.onload();
+    });
+  };
+  server.flush = function () {
+    while (server.pending.length) server.pending.shift()();
+  };
+  return server;
+}
+
+function toggle(app, seq, id, checked) {
+  app.listeners.appmessage({ payload: { KEY_TOGGLE_REQUEST: 1,
+    KEY_REQUEST_SEQ: seq, KEY_ITEM_ID: id, KEY_ITEM_CHECKED: checked } });
+}
+
+test('toggles queued during a save are applied in order with one sync', function () {
+  var server = deferredServer();
+  var app = bridge({ getmeUrl: url }, server.respond);
+  toggle(app, 1, 1, 1);
+  toggle(app, 2, 2, 1);
+  toggle(app, 3, 1, 0);
+  assert.equal(app.messages.length, 0, 'no status round trips before saving');
+  server.flush();
+
+  assert.deepEqual(app.requests.map(function (request) {
+    return request.body.action + ':' + (request.body.id || '') + ':' +
+      (request.body.checked === undefined ? '' : request.body.checked);
+  }), ['toggle:1:1', 'toggle:2:1', 'toggle:1:0', 'fetch::']);
+  var begins = app.messages.filter(function (message) {
+    return message[keys.KEY_SYNC_BEGIN] !== undefined;
+  });
+  assert.equal(begins.length, 1);
+  assert.equal(begins[0][keys.KEY_REQUEST_SEQ], 3);
+  var synced = app.messages.filter(function (message) {
+    return message[keys.KEY_SYNC_ITEM] === 1;
+  }).map(function (message) { return message[keys.KEY_ITEM_CHECKED]; });
+  assert.deepEqual(synced, [0, 1]);
+});
+
+test('a failed toggle reports its own sequence and still reconciles', function () {
+  var server = deferredServer();
+  server.fail[1] = true;
+  var app = bridge({ getmeUrl: url }, server.respond);
+  toggle(app, 5, 1, 1);
+  toggle(app, 6, 2, 1);
+  server.flush();
+
+  var errors = app.messages.filter(function (message) {
+    return message[keys.KEY_SYNC_ERROR] !== undefined;
+  });
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0][keys.KEY_REQUEST_SEQ], 5);
+  assert.equal(errors[0][keys.KEY_SYNC_ERROR], 'Save failed');
+  assert.ok(app.messages.some(function (message) {
+    return message[keys.KEY_SYNC_DONE] === 1 && message[keys.KEY_REQUEST_SEQ] === 6;
+  }));
+});
+
+test('invalid requests are reported in order without interrupting saves', function () {
+  var server = deferredServer();
+  var app = bridge({ getmeUrl: url }, server.respond);
+  toggle(app, 1, 1, 1);
+  toggle(app, 2, 0, 1);
+  assert.equal(app.messages.length, 0);
+  server.flush();
+
+  var errorIndex = app.messages.findIndex(function (message) {
+    return message[keys.KEY_SYNC_ERROR] === 'Invalid item';
+  });
+  var beginIndex = app.messages.findIndex(function (message) {
+    return message[keys.KEY_SYNC_BEGIN] !== undefined;
+  });
+  assert.ok(errorIndex >= 0 && errorIndex < beginIndex);
+  assert.equal(app.messages[beginIndex][keys.KEY_REQUEST_SEQ], 2);
+  assert.equal(app.requests.filter(function (request) {
+    return request.body.action === 'toggle';
+  }).length, 1);
 });

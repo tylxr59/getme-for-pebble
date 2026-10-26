@@ -53,6 +53,14 @@ static void window_unload(Window *window) {
 void dialog_settings_window_push(char *message) {
   s_message_text = message;
 
+  // Several queued requests can fail together; show only the latest error.
+  if (s_main_window && window_stack_contains_window(s_main_window)) {
+    if (s_label_layer) {
+      text_layer_set_text(s_label_layer, s_message_text);
+    }
+    return;
+  }
+
   if (!s_main_window) {
     s_main_window = window_create();
     window_set_window_handlers(s_main_window, (WindowHandlers) {

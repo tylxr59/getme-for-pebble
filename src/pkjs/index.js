@@ -43,10 +43,13 @@ var KEY_SYNC_BEGIN = messageKeys.KEY_SYNC_BEGIN;
 var KEY_SYNC_ITEM = messageKeys.KEY_SYNC_ITEM;
 var KEY_SYNC_DONE = messageKeys.KEY_SYNC_DONE;
 var KEY_SYNC_ERROR = messageKeys.KEY_SYNC_ERROR;
-var KEY_STATUS = messageKeys.KEY_STATUS;
 
 var requestQueue = [];
 var requestActive = false;
+// The watch shows changes immediately, so one sync after the queue drains
+// is enough to reconcile any number of saved changes.
+var syncNeeded = false;
+var lastProcessedSeq = 0;
 
 function payloadValue(payload, name) {
   if (payload[name] !== undefined) return payload[name];
@@ -100,13 +103,6 @@ function notifyWatch(key, attemptsRemaining) {
       }, 500);
     }
   });
-}
-
-function sendStatus(seq, message, callback) {
-  var dict = {};
-  dict[KEY_REQUEST_SEQ] = seq;
-  dict[KEY_STATUS] = String(message || '').substring(0, 60);
-  sendMessage(dict, callback);
 }
 
 function sendError(seq, error, callback) {
@@ -227,55 +223,57 @@ function fetchAndSendList(seq, callback) {
 
 function finishRequest() {
   requestActive = false;
-  if (requestQueue.length) {
-    setTimeout(processNextRequest, 0);
-  }
+  processNextRequest();
 }
 
-function finishWithError(seq, error) {
-  sendError(seq, error, function () {
-    finishRequest();
-  });
-}
-
-function finishWithList(seq) {
+function syncList() {
+  var seq = lastProcessedSeq;
+  syncNeeded = false;
+  requestActive = true;
+  // The sequence tells the watch which requests this list already includes.
   fetchAndSendList(seq, function (err) {
-    if (err) return finishWithError(seq, err);
+    if (err) return sendError(seq, err, finishRequest);
     finishRequest();
   });
 }
 
 function processNextRequest() {
-  if (requestActive || !requestQueue.length) return;
+  if (requestActive) return;
+  if (!requestQueue.length) {
+    if (syncNeeded) syncList();
+    return;
+  }
 
   requestActive = true;
   var request = requestQueue.shift();
-  var status = request.type === 'fetch' ? 'Refreshing data' :
-    request.type === 'add' ? 'Adding' :
-    request.type === 'toggle' ? 'Saving' : 'Clearing';
+  lastProcessedSeq = Math.max(lastProcessedSeq, request.seq);
 
-  sendStatus(request.seq, status, function (statusError) {
-    if (statusError) {
-      finishRequest();
-      return;
-    }
+  if (request.type === 'error') {
+    sendError(request.seq, request.error, finishRequest);
+    return;
+  }
 
-    if (request.type === 'fetch') {
-      finishWithList(request.seq);
-      return;
-    }
+  syncNeeded = true;
+  if (request.type === 'fetch') {
+    finishRequest();
+    return;
+  }
 
-    var action = request.type === 'clear' ? 'clear_checked' : request.type;
-    postGetme(action, request.payload, function (err) {
-      if (err) return finishWithError(request.seq, err);
-      finishWithList(request.seq);
-    });
+  var action = request.type === 'clear' ? 'clear_checked' : request.type;
+  postGetme(action, request.payload, function (err) {
+    if (err) return sendError(request.seq, err, finishRequest);
+    finishRequest();
   });
 }
 
 function enqueueRequest(request) {
   requestQueue.push(request);
   processNextRequest();
+}
+
+// Report invalid requests in order so earlier queued changes are unaffected.
+function rejectRequest(seq, error) {
+  enqueueRequest({ seq: seq, type: 'error', error: error });
 }
 
 Pebble.addEventListener('ready', function () {
@@ -320,14 +318,14 @@ Pebble.addEventListener('appmessage', function (e) {
     addName = String(addName || '').replace(/^\s+|\s+$/g, '');
     // Dictation commonly appends sentence punctuation to grocery names.
     addName = addName.replace(/\.$/, '').replace(/\s+$/g, '');
-    if (!addName) return finishWithError(seq, new Error('Item name is empty'));
+    if (!addName) return rejectRequest(seq, new Error('Item name is empty'));
     enqueueRequest({ seq: seq, type: 'add', payload: { name: addName } });
     return;
   }
 
   if (payloadValue(payload, 'KEY_TOGGLE_REQUEST') !== undefined) {
     var itemId = parseInt(payloadValue(payload, 'KEY_ITEM_ID'), 10);
-    if (!(itemId > 0)) return finishWithError(seq, new Error('Invalid item'));
+    if (!(itemId > 0)) return rejectRequest(seq, new Error('Invalid item'));
     var checked = payloadValue(payload, 'KEY_ITEM_CHECKED');
     enqueueRequest({
       seq: seq,

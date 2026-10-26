@@ -15,7 +15,7 @@ This is a new Pebble app based on a fork of [Checklist](https://github.com/freak
 - Syncs your getme list to a Pebble watch
 - Shows the last synced list when the phone or server is unavailable
 - Adds new grocery items with Pebble dictation
-- Toggles items checked or unchecked from the watch
+- Toggles items checked or unchecked instantly, saving to getme in the background
 - Clears checked items from getme
 - Rejects incomplete or stale syncs without replacing the last good list
 - Uses a Clay settings page for the getme server URL
@@ -24,6 +24,8 @@ This is a new Pebble app based on a fork of [Checklist](https://github.com/freak
 ## How It Works
 
 getme for Pebble talks to getme through PebbleKitJS on the paired phone. The watch sends add, toggle, clear, and refresh requests to the phone; the phone calls the getme JSON API; then the watch receives a fresh copy of the server list.
+
+Checking items off is shown on the watch immediately and saved in the background, so you can keep checking items while earlier changes save. Rows stay in place until the next refresh, even though getme moves checked items to the bottom. If a change cannot be saved, the item returns to its previous state and an error is shown.
 
 The watch keeps a local copy only as a last-known display state. getme remains the canonical list.
 
