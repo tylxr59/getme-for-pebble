@@ -1,6 +1,8 @@
 #include "messaging.h"
 #include "checklist.h"
 #include "util.h"
+#include "sync_state.h"
+#include "watch_protocol.h"
 #include <message_keys.auto.h>
 #include <pebble.h>
 
@@ -9,40 +11,14 @@
 #define OUTBOX_RETRY_MS 250
 #define OUTBOX_MAX_ATTEMPTS 5
 
-typedef enum {
-  COMMAND_NONE,
-  COMMAND_FETCH,
-  COMMAND_ADD,
-  COMMAND_CLEAR,
-} CommandType;
-
-// A checkbox change shown on the watch before getme has confirmed it.
-typedef struct {
-  int32_t server_id;
-  uint32_t seq;
-  // state the user asked for
-  bool is_checked;
-  // last state known to be on the server, restored if saving fails
-  bool confirmed_checked;
-  bool sent;
-} PendingToggle;
-
 static char s_last_error[64];
 static bool s_has_error;
 static void (*s_message_processed_callback)(void);
 
 static uint32_t s_first_request_seq;
-static uint32_t s_next_request_seq;
 
 // Add, clear, and refresh requests run one at a time.
-static CommandType s_command;
-static uint32_t s_command_seq;
 static bool s_command_sent;
-static char s_command_name[MAX_NAME_LENGTH];
-
-// Toggles never block the UI; at most one is tracked per item.
-static PendingToggle s_toggles[MAX_CHECKLIST_ITEMS];
-static int s_num_toggles;
 
 static bool s_outbox_busy;
 static uint32_t s_inflight_seq;
@@ -57,6 +33,33 @@ static int s_received_sync_items;
 static AppTimer *s_request_timer;
 static AppTimer *s_phone_ready_timer;
 static bool s_phone_ready;
+static bool s_paused;
+static int s_total_items;
+static int s_pending_total_items;
+static uint32_t s_pending_revision;
+
+static SyncState s_state;
+
+static bool save_pending(void) {
+  if (!sync_state_save(&s_state)) {
+    s_paused = true;
+    s_has_error = true;
+    snprintf(s_last_error, sizeof(s_last_error), "Cannot save pending changes");
+    return false;
+  }
+  return true;
+}
+
+static void restore_pending(void) {
+  if (!sync_state_load(&s_state)) return;
+  s_first_request_seq = s_state.next_seq + 1;
+  if (s_state.command != COMMAND_NONE && s_state.command_seq < s_first_request_seq) s_first_request_seq = s_state.command_seq;
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    s_state.toggles[i].sent = false;
+    if (s_state.toggles[i].seq < s_first_request_seq) s_first_request_seq = s_state.toggles[i].seq;
+  }
+}
+
 
 static void pump_outbox(void);
 
@@ -73,38 +76,38 @@ static void set_last_error(const char *message) {
 }
 
 static uint32_t next_request_seq(void) {
-  s_next_request_seq++;
-  if (s_next_request_seq == 0) {
-    s_next_request_seq++;
+  s_state.next_seq++;
+  if (s_state.next_seq == 0) {
+    s_state.next_seq++;
   }
-  return s_next_request_seq;
+  return s_state.next_seq;
 }
 
-// Messages from a previous app launch carry older sequence numbers.
+// Only accept replies for this journal's current operation range.
 static bool seq_is_current(uint32_t seq) {
-  return seq >= s_first_request_seq && seq <= s_next_request_seq;
+  return seq >= s_first_request_seq && seq <= s_state.next_seq;
 }
 
 static PendingToggle *find_toggle(int32_t server_id) {
-  for (int i = 0; i < s_num_toggles; i++) {
-    if (s_toggles[i].server_id == server_id) {
-      return &s_toggles[i];
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    if (s_state.toggles[i].server_id == server_id) {
+      return &s_state.toggles[i];
     }
   }
   return NULL;
 }
 
 static void remove_toggle(int index) {
-  s_num_toggles--;
-  s_toggles[index] = s_toggles[s_num_toggles];
+  s_state.num_toggles--;
+  s_state.toggles[index] = s_state.toggles[s_state.num_toggles];
 }
 
 static bool awaiting_phone(void) {
-  if (s_sync_in_progress || (s_command != COMMAND_NONE && s_command_sent)) {
+  if (s_sync_in_progress || (s_state.command != COMMAND_NONE && s_command_sent)) {
     return true;
   }
-  for (int i = 0; i < s_num_toggles; i++) {
-    if (s_toggles[i].sent) {
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    if (s_state.toggles[i].sent) {
       return true;
     }
   }
@@ -118,12 +121,11 @@ static void cancel_sync(void) {
 
 static void fail_all_requests(const char *message) {
   cancel_sync();
-  for (int i = 0; i < s_num_toggles; i++) {
-    checklist_set_checked_by_server_id(s_toggles[i].server_id,
-                                       s_toggles[i].confirmed_checked);
-  }
-  s_num_toggles = 0;
-  s_command = COMMAND_NONE;
+  // Connectivity failure is not a server rejection. Retain durable work.
+  s_paused = true;
+  s_command_sent = false;
+  for (int i = 0; i < s_state.num_toggles; i++) s_state.toggles[i].sent = false;
+  save_pending();
   if (s_request_timer != NULL) {
     app_timer_cancel(s_request_timer);
     s_request_timer = NULL;
@@ -182,48 +184,28 @@ static void schedule_outbox_retry(void) {
 
 // Sends the oldest unsent request so the phone applies them in order.
 static void pump_outbox(void) {
-  if (s_outbox_busy || s_outbox_retry_timer != NULL) {
+  if (s_paused || s_outbox_busy || s_outbox_retry_timer != NULL) {
     return;
   }
 
   PendingToggle *toggle = NULL;
-  for (int i = 0; i < s_num_toggles; i++) {
-    if (!s_toggles[i].sent &&
-        (toggle == NULL || s_toggles[i].seq < toggle->seq)) {
-      toggle = &s_toggles[i];
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    if (!s_state.toggles[i].sent &&
+        (toggle == NULL || s_state.toggles[i].seq < toggle->seq)) {
+      toggle = &s_state.toggles[i];
     }
   }
 
-  bool send_command = s_command != COMMAND_NONE && !s_command_sent &&
-                      (toggle == NULL || s_command_seq < toggle->seq);
+  bool send_command = s_state.command != COMMAND_NONE && !s_command_sent &&
+                      (toggle == NULL || s_state.command_seq < toggle->seq);
   if (!send_command && toggle == NULL) {
     return;
   }
 
-  DictionaryIterator *iterator = NULL;
-  AppMessageResult result = app_message_outbox_begin(&iterator);
-  if (result != APP_MSG_OK || iterator == NULL) {
-    schedule_outbox_retry();
-    return;
-  }
+  if (!save_pending()) return;
 
-  uint32_t seq = send_command ? s_command_seq : toggle->seq;
-  dict_write_uint32(iterator, MESSAGE_KEY_KEY_REQUEST_SEQ, seq);
-
-  if (!send_command) {
-    dict_write_uint8(iterator, MESSAGE_KEY_KEY_TOGGLE_REQUEST, 1);
-    dict_write_int32(iterator, MESSAGE_KEY_KEY_ITEM_ID, toggle->server_id);
-    dict_write_uint8(iterator, MESSAGE_KEY_KEY_ITEM_CHECKED,
-                     toggle->is_checked ? 1 : 0);
-  } else if (s_command == COMMAND_ADD) {
-    dict_write_cstring(iterator, MESSAGE_KEY_KEY_ADD_REQUEST, s_command_name);
-  } else if (s_command == COMMAND_CLEAR) {
-    dict_write_uint8(iterator, MESSAGE_KEY_KEY_CLEAR_CHECKED_REQUEST, 1);
-  } else {
-    dict_write_uint8(iterator, MESSAGE_KEY_KEY_FETCH_REQUEST, 1);
-  }
-
-  result = app_message_outbox_send();
+  uint32_t seq = send_command ? s_state.command_seq : toggle->seq;
+  AppMessageResult result = watch_protocol_send(&s_state, seq, send_command ? NULL : toggle);
   if (result != APP_MSG_OK) {
     schedule_outbox_retry();
     return;
@@ -240,16 +222,18 @@ static void pump_outbox(void) {
 }
 
 static void queue_command(CommandType type, const char *name) {
-  if (s_command != COMMAND_NONE) {
-    APP_LOG(APP_LOG_LEVEL_WARNING, "Ignoring action while request %lu is active",
-            (unsigned long)s_command_seq);
+  if (s_state.command != COMMAND_NONE) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "Action blocked by pending request %lu",
+            (unsigned long)s_state.command_seq);
+    set_last_error("Sync pending; refresh then retry");
     return;
   }
 
-  s_command = type;
-  s_command_seq = next_request_seq();
+  s_state.command = type;
+  s_state.command_seq = next_request_seq();
   s_command_sent = false;
-  snprintf(s_command_name, sizeof(s_command_name), "%s", name ? name : "");
+  snprintf(s_state.command_name, sizeof(s_state.command_name), "%s", name ? name : "");
+  save_pending();
   notify_message_processed();
   pump_outbox();
 }
@@ -261,38 +245,39 @@ static void handle_phone_ready(void) {
     s_phone_ready_timer = NULL;
   }
 
-  // The phone may have restarted and lost anything already sent. Toggles are
-  // idempotent, so resend them; a lost add or clear is replaced by a refresh.
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    checklist_set_checked_by_server_id(s_state.toggles[i].server_id, s_state.toggles[i].is_checked);
+  }
+  // Stable operation IDs make every pending mutation safe to resend.
+  s_paused = false;
   cancel_sync();
-  for (int i = 0; i < s_num_toggles; i++) {
-    s_toggles[i].sent = false;
-  }
-  if (s_command == COMMAND_NONE || s_command_sent) {
-    s_command = COMMAND_NONE;
-    queue_command(COMMAND_FETCH, NULL);
-  } else {
-    pump_outbox();
-  }
+  for (int i = 0; i < s_state.num_toggles; i++) s_state.toggles[i].sent = false;
+  s_command_sent = false;
+  if (s_state.command == COMMAND_NONE && s_state.num_toggles == 0) queue_command(COMMAND_FETCH, NULL);
+  else pump_outbox();
   update_request_timer();
 }
 
 // Every request up to and including seq has been applied on the server.
 static void commit_sync(uint32_t seq) {
-  bool covers_command = s_command != COMMAND_NONE && s_command_sent &&
-                        s_command_seq <= seq;
+  bool covers_command = s_state.command != COMMAND_NONE && s_command_sent &&
+                        s_state.command_seq <= seq;
 
   // Only a refresh reorders the list; otherwise rows would shift under the
   // selection while the user is still checking items off.
-  checklist_commit_replace(!(covers_command && s_command == COMMAND_FETCH));
+  checklist_commit_replace(!(covers_command && s_state.command == COMMAND_FETCH));
   s_sync_in_progress = false;
+  s_total_items = s_pending_total_items;
+  s_state.revision = s_pending_revision;
+  s_state.ack_seq = seq;
 
   if (covers_command) {
-    s_command = COMMAND_NONE;
+    s_state.command = COMMAND_NONE;
   }
 
   // Keep showing toggles the server has not seen yet.
-  for (int i = s_num_toggles - 1; i >= 0; i--) {
-    PendingToggle *toggle = &s_toggles[i];
+  for (int i = s_state.num_toggles - 1; i >= 0; i--) {
+    PendingToggle *toggle = &s_state.toggles[i];
     if ((toggle->sent && toggle->seq <= seq) ||
         !checklist_set_checked_by_server_id(toggle->server_id,
                                             toggle->is_checked)) {
@@ -300,6 +285,7 @@ static void commit_sync(uint32_t seq) {
     }
   }
 
+  save_pending();
   notify_message_processed();
 }
 
@@ -308,12 +294,12 @@ static void handle_request_error(uint32_t seq, const char *message) {
           message);
   cancel_sync();
 
-  if (s_command != COMMAND_NONE && s_command_sent && s_command_seq <= seq) {
-    s_command = COMMAND_NONE;
+  if (s_state.command != COMMAND_NONE && s_command_sent && s_state.command_seq <= seq) {
+    s_state.command = COMMAND_NONE;
   }
 
-  for (int i = s_num_toggles - 1; i >= 0; i--) {
-    PendingToggle *toggle = &s_toggles[i];
+  for (int i = s_state.num_toggles - 1; i >= 0; i--) {
+    PendingToggle *toggle = &s_state.toggles[i];
     if (!toggle->sent || toggle->seq > seq) {
       continue;
     }
@@ -325,13 +311,16 @@ static void handle_request_error(uint32_t seq, const char *message) {
     remove_toggle(i);
   }
 
+  s_state.ack_seq = seq;
+  save_pending();
   set_last_error(message);
 }
 
 void messaging_init(void (*processed_callback)(void)) {
   s_message_processed_callback = processed_callback;
-  s_next_request_seq = (uint32_t)time(NULL);
-  s_first_request_seq = s_next_request_seq + 1;
+  s_state.next_seq = (uint32_t)time(NULL);
+  s_first_request_seq = s_state.next_seq + 1;
+  restore_pending();
 
   app_message_register_inbox_received(inbox_received_callback);
   app_message_register_inbox_dropped(inbox_dropped_callback);
@@ -348,6 +337,7 @@ void messaging_init(void (*processed_callback)(void)) {
 }
 
 void messaging_deinit(void) {
+  save_pending();
   if (s_request_timer != NULL) {
     app_timer_cancel(s_request_timer);
     s_request_timer = NULL;
@@ -365,6 +355,10 @@ void messaging_deinit(void) {
 }
 
 void messaging_send_fetch_request(void) {
+  if (s_paused) {
+    s_paused = false;
+    if (s_state.command != COMMAND_NONE || s_state.num_toggles > 0) { pump_outbox(); return; }
+  }
   queue_command(COMMAND_FETCH, NULL);
 }
 
@@ -392,10 +386,10 @@ void messaging_send_toggle_request(int32_t server_id, bool is_checked) {
 
   PendingToggle *toggle = find_toggle(server_id);
   if (toggle == NULL) {
-    if (s_num_toggles >= MAX_CHECKLIST_ITEMS) {
+    if (s_state.num_toggles >= MAX_CHECKLIST_ITEMS) {
       return;
     }
-    toggle = &s_toggles[s_num_toggles++];
+    toggle = &s_state.toggles[s_state.num_toggles++];
     toggle->server_id = server_id;
     toggle->confirmed_checked = !is_checked;
   }
@@ -406,11 +400,18 @@ void messaging_send_toggle_request(int32_t server_id, bool is_checked) {
   toggle->sent = false;
 
   checklist_set_checked_by_server_id(server_id, is_checked);
+  save_pending();
   notify_message_processed();
   pump_outbox();
 }
 
 void messaging_send_clear_checked_request(void) {
+  if (s_state.command != COMMAND_NONE) return;
+  s_state.clear_count = 0;
+  for (int i = 0; i < checklist_get_num_items(); i++) {
+    ChecklistItem *item = checklist_get_item_by_id(i);
+    if (item && item->is_checked && item->server_id > 0) s_state.clear_ids[s_state.clear_count++] = item->server_id;
+  }
   queue_command(COMMAND_CLEAR, NULL);
 }
 
@@ -427,16 +428,21 @@ bool messaging_consume_last_error(char *buffer, size_t buffer_size) {
 
 bool messaging_get_status(char *buffer, size_t buffer_size) {
   const char *status = NULL;
-  if (s_command == COMMAND_FETCH) {
+  if (s_paused && (s_state.command != COMMAND_NONE || s_state.num_toggles > 0)) status = "Not saved; refresh to retry";
+  else if (s_state.command == COMMAND_FETCH) {
     status = "Refreshing data";
-  } else if (s_command == COMMAND_ADD) {
+  } else if (s_state.command == COMMAND_ADD) {
     status = "Adding";
-  } else if (s_command == COMMAND_CLEAR) {
+  } else if (s_state.command == COMMAND_CLEAR) {
     status = "Clearing";
-  } else if (s_num_toggles > 0) {
+  } else if (s_state.num_toggles > 0) {
     status = "Saving";
   }
 
+  if (status == NULL && s_total_items > MAX_CHECKLIST_ITEMS && buffer && buffer_size) {
+    snprintf(buffer, buffer_size, "Showing %d of %d", MAX_CHECKLIST_ITEMS, s_total_items);
+    return true;
+  }
   if (status == NULL || buffer == NULL || buffer_size == 0) {
     return false;
   }
@@ -448,6 +454,18 @@ bool messaging_get_status(char *buffer, size_t buffer_size) {
 void inbox_received_callback(DictionaryIterator *iterator, void *context) {
   if (dict_find(iterator, MESSAGE_KEY_KEY_CONFIG_CHANGED) != NULL ||
       dict_find(iterator, MESSAGE_KEY_KEY_PHONE_READY) != NULL) {
+    Tuple *ready = dict_find(iterator, MESSAGE_KEY_KEY_PHONE_READY);
+    if (!ready) ready = dict_find(iterator, MESSAGE_KEY_KEY_CONFIG_CHANGED);
+    if (ready->value->int32 != 2) { fail_all_requests("Update the phone bridge"); return; }
+    if (dict_find(iterator, MESSAGE_KEY_KEY_CONFIG_CHANGED)) {
+      bool had_pending = s_state.num_toggles > 0 || (s_state.command != COMMAND_NONE && s_state.command != COMMAND_FETCH);
+      s_state.num_toggles = 0;
+      s_state.command = COMMAND_NONE;
+      s_state.revision = 0;
+      s_first_request_seq = s_state.next_seq + 1;
+      save_pending();
+      if (had_pending) set_last_error("Server changed; edits discarded");
+    }
     handle_phone_ready();
     return;
   }
@@ -461,6 +479,11 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
 
   Tuple *sync_error_tuple = dict_find(iterator, MESSAGE_KEY_KEY_SYNC_ERROR);
   if (sync_error_tuple != NULL) {
+    Tuple *retryable = dict_find(iterator, MESSAGE_KEY_KEY_RETRYABLE);
+    if (retryable && retryable->value->int32) {
+      fail_all_requests(sync_error_tuple->value->cstring);
+      return;
+    }
     if (sync_error_tuple->type != TUPLE_CSTRING ||
         sync_error_tuple->length <= 1) {
       handle_request_error(seq, "Sync failed");
@@ -476,9 +499,16 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
 
   Tuple *sync_begin_tuple = dict_find(iterator, MESSAGE_KEY_KEY_SYNC_BEGIN);
   if (sync_begin_tuple != NULL) {
+    Tuple *version = dict_find(iterator, MESSAGE_KEY_KEY_PROTOCOL_VERSION);
+    if (!version || version->value->int32 != 2) { fail_all_requests("Update the phone bridge"); return; }
+    Tuple *revision = dict_find(iterator, MESSAGE_KEY_KEY_REVISION);
+    if (!revision) { fail_all_requests("Missing list revision"); return; }
+    s_pending_revision = revision->value->uint32;
+    Tuple *total = dict_find(iterator, MESSAGE_KEY_KEY_TOTAL_ITEMS);
+    s_pending_total_items = total ? total->value->int32 : 0;
     int expected = sync_begin_tuple->value->int32;
     if (expected < 0 || expected > MAX_CHECKLIST_ITEMS) {
-      handle_request_error(seq, "List is too long");
+      fail_all_requests("Invalid snapshot size; retry");
       update_request_timer();
       return;
     }
@@ -514,7 +544,7 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
                       name_tuple->type == TUPLE_CSTRING &&
                       name_tuple->length > 1;
     if (!valid_item) {
-      handle_request_error(seq, "Invalid sync data");
+      fail_all_requests("Invalid sync data; retry");
       update_request_timer();
       return;
     }
@@ -530,7 +560,7 @@ void inbox_received_callback(DictionaryIterator *iterator, void *context) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Sync %lu done: %d/%d", (unsigned long)seq,
             s_received_sync_items, s_expected_sync_items);
     if (s_received_sync_items != s_expected_sync_items) {
-      handle_request_error(seq, "Sync incomplete");
+      fail_all_requests("Sync incomplete; retry");
     } else {
       commit_sync(seq);
     }
@@ -552,12 +582,12 @@ void outbox_failed_callback(DictionaryIterator *iterator,
   s_outbox_busy = false;
 
   // Put the failed request back so it is retried in its original order.
-  if (s_command != COMMAND_NONE && s_command_seq == s_inflight_seq) {
+  if (s_state.command != COMMAND_NONE && s_state.command_seq == s_inflight_seq) {
     s_command_sent = false;
   }
-  for (int i = 0; i < s_num_toggles; i++) {
-    if (s_toggles[i].seq == s_inflight_seq) {
-      s_toggles[i].sent = false;
+  for (int i = 0; i < s_state.num_toggles; i++) {
+    if (s_state.toggles[i].seq == s_inflight_seq) {
+      s_state.toggles[i].sent = false;
     }
   }
 

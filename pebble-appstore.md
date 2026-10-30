@@ -21,9 +21,12 @@ Features:
 - Syncs with your self-hosted getme grocery list
 - Add items from the watch using dictation
 - Toggle items checked or unchecked
-- Clear completed items from getme
+- Clear specific visible completed items from getme
 - Keeps showing your last synced list if your phone or server is unavailable
+- Preserves pending edits across restarts and retries without duplicate additions
+- Reports conflicting edits instead of silently overwriting another device
+- Shows the total count when a list exceeds the 52-item watch view
 - Protects the last good list from incomplete or stale syncs
 - Configure your getme URL from the Pebble/Rebble companion app
 
-Requires a running getme install, a configured server URL, and a list of no more than 52 items. getme is intentionally unauthenticated, so use HTTPS and treat the configured URL as private. Check it out at https://github.com/tylxr59/getme
+Version 2.0 requires the upgraded getme server with the versioned sync API. Upgrade your server first by uploading index.php, server/, and web/ together; your existing list data is preserved. Requires Pebble Time 2, a paired phone, and a configured server URL. The watch displays the first 52 items; additional items remain on the server. getme is intentionally unauthenticated, so use HTTPS and treat the configured URL as private. Check it out at https://github.com/tylxr59/getme

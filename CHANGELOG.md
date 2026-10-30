@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0
+
+- Required the upgraded getme server with the versioned sync API. Deploy the server first, uploading `index.php`, `server/`, and `web/` together; existing list data is preserved.
+- Preserved pending edits across app restarts and connection failures, with duplicate-safe retries after uncertain saves.
+- Reported conflicting edits and refreshed the list instead of silently overwriting changes from another device.
+- Showed the total item count when a list exceeds the watch's 52-item view, and limited clear checked to the specific visible items selected for removal.
+- Prevented pending edits from being sent to a different server after changing the configured URL.
+- Fixed pending saves stalling when reusing watch storage and showed an error when an unfinished sync blocks an action.
+
 ## 1.3.0
 
 - Made checking items off instant: changes save in the background, so you can keep checking items without waiting.

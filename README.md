@@ -25,14 +25,14 @@ This is a new Pebble app based on a fork of [Checklist](https://github.com/freak
 
 getme for Pebble talks to getme through PebbleKitJS on the paired phone. The watch sends add, toggle, clear, and refresh requests to the phone; the phone calls the getme JSON API; then the watch receives a fresh copy of the server list.
 
-Checking items off is shown on the watch immediately and saved in the background, so you can keep checking items while earlier changes save. Rows stay in place until the next refresh, even though getme moves checked items to the bottom. If a change cannot be saved, the item returns to its previous state and an error is shown.
+Checking items off is shown on the watch immediately and saved in the background, so you can keep checking items while earlier changes save. Rows stay in place until the next refresh, even though getme moves checked items to the bottom. Temporary connection failures keep edits pending for retry after a refresh or reopen. Rejected or conflicting edits show an error and reconcile with the server.
 
-The watch keeps a local copy only as a last-known display state. getme remains the canonical list.
+The watch keeps a cached list and a persistent outbox of pending edits. getme remains the canonical list.
 
 ## Requirements
 
 - Pebble Time 2 / `emery`
-- A self-hosted [getme](https://github.com/tylxr59/getme) server reachable from the paired phone
+- An upgraded self-hosted [getme](https://github.com/tylxr59/getme) server with the versioned sync API, reachable from the paired phone
 - Pebble SDK / Pebble Tool, only when building locally
 
 ## Related Repos
@@ -43,7 +43,7 @@ The watch keeps a local copy only as a last-known display state. getme remains t
 
 ## Setup
 
-1. Install getme for Pebble from the Pebble app store, or build it locally.
+1. Upgrade your getme server first: upload `index.php`, `server/`, and `web/` together, preserving the existing database. Then install getme for Pebble from the Pebble Appstore, or build it locally.
 2. Open the app settings in the Pebble/Rebble companion app.
 3. Set the full URL to your getme install.
 
@@ -70,7 +70,9 @@ database-protection guidance when exposing it outside a trusted network.
 - **Set GetMe URL**: Open companion settings and enter the complete getme URL.
 - **Bad server response**: The server returned a successful HTTP response that was not valid JSON. Use the final HTTPS URL with a trailing slash (for example, `https://example.com/getme/`). HTTP or directory redirects can change the API POST into a GET and return the web page instead. Older app versions may keep using a previously saved URL after you change settings; update the app and save the correct URL again.
 - **Phone timeout** or **Message dropped**: Confirm the phone is connected, then reopen the app to retry. The last good list remains available.
-- **List has more than 52 items**: Reduce the getme list to 52 items or fewer, then reopen the app.
+- **Showing 52 of N**: The watch displays the first 52 server-ordered items. Other items remain on the server. Clear checked affects only the visible checked items.
+- **Not saved; refresh to retry**: Reopen or refresh with the phone connected to retry pending edits.
+- **List changed**: The server rejected a stale edit. Let the list refresh, then retry your intended change.
 - **Invalid server item** or **Invalid sync data**: Update getme and verify its JSON API returns positive item IDs and non-empty names.
 - If the app shows stale items, reopen it with the phone connected to trigger another sync.
 - Include the full getme path in settings, including any subdirectory used by the browser version.
@@ -118,3 +120,27 @@ getme for Pebble is licensed under the [MIT License](LICENSE). It is based on [C
 ## Notes
 
 AI assistance was used during development for code review, UI polish, documentation drafting, and implementation support. The app behavior, configuration choices, and release decisions were reviewed by the project maintainer.
+
+## Upgrading to 2.0.0
+
+Requires the matching getme server migration. Deploy the server first: upload
+`index.php`, `server/`, and `web/` together, keeping the existing SQLite database.
+Older watch releases continue to work through the server's compatibility API.
+
+The watch now persists pending actions and retries the same operation after a
+connection failure or app restart. A completed snapshot confirms a server save;
+Bluetooth delivery alone does not. Refresh or reopen to retry a pending action.
+A conflicting edit is reported and the list reconciles with the server; it is
+not silently reapplied. Changing servers discards pending edits with an error.
+
+Lists longer than 52 items show the first 52 server-ordered items and a total count.
+Clear checked deletes only the specific checked items visible on the watch.
+
+Modules: `src/pkjs/{settings,http-client,sync,watch-transport}.js` handle phone work;
+`src/c/{sync_state,pending_store,watch_protocol}.*` isolate durable state, journal,
+and request encoding from the sync lifecycle in `messaging.c`. The existing list
+model and windows remain responsible for storage/rendering and interaction.
+
+Run `npm test` for restart, conflict, URL settings, UTF-8, and native journal fault
+tests, then `pebble build` for emery. Physical disconnect/reconnect, dictation,
+settings changes, and display behavior still need emulator/device testing.

@@ -1,6 +1,6 @@
 {
   "name": "getme-for-pebble",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "author": "tylxr",
   "description": "Pebble Time 2 client for a self-hosted getme grocery list.",
   "private": true,
@@ -74,7 +74,13 @@
       "KEY_SYNC_ITEM": 21,
       "KEY_SYNC_DONE": 22,
       "KEY_SYNC_ERROR": 23,
-      "KEY_STATUS": 24
+      "KEY_STATUS": 24,
+      "KEY_PROTOCOL_VERSION": 25,
+      "KEY_RETRYABLE": 26,
+      "KEY_TOTAL_ITEMS": 27,
+      "KEY_ACK_SEQ": 28,
+      "KEY_REVISION": 29,
+      "KEY_TARGET_IDS": 30
     },
     "watchapp": {
       "onlyShownOnCommunication": false,

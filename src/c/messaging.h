@@ -2,7 +2,7 @@
 #include <pebble.h>
 
 #define INBOX_SIZE 256
-#define OUTBOX_SIZE 256
+#define OUTBOX_SIZE 512
 
 void messaging_init(void (*message_processed_callback)(void));
 void messaging_deinit(void);
