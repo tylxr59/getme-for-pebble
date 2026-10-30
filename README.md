@@ -13,7 +13,7 @@
   <a href="https://github.com/tylxr59/getme-for-pebble/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/tylxr59/getme-for-pebble?display_name=tag&sort=semver"></a>
   <a href="https://apps.repebble.com/6f7de6d295fa464aa9bc7ab8"><img alt="Pebble Appstore" src="https://img.shields.io/badge/Pebble%20Appstore-getme-ff4700"></a>
   <a href="#-requirements"><img alt="Pebble Time 2" src="https://img.shields.io/badge/Pebble-Time%202-ff4700"></a>
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/tylxr59/getme-for-pebble"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-97ca00"></a>
 </p>
 
 <p align="center">
@@ -24,8 +24,6 @@
 </p>
 
 ---
-
-## ⌚ getme for Pebble
 
 getme for Pebble is a Pebble Time 2 app for [getme](https://github.com/tylxr59/getme), a dead-simple self-hosted grocery list.
 
