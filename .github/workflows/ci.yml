@@ -72,9 +72,15 @@ jobs:
           if ! compgen -G "build/*.pbw" >/dev/null; then pebble build; fi
 
       - name: Prepare release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${RELEASE_TAG#v}"
           node tools/extract-release-notes.js "$VERSION" > release-notes.md
+          # Append GitHub's generated notes (merged PRs, new contributors, compare link).
+          echo >> release-notes.md
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="$RELEASE_TAG" --jq .body >> release-notes.md
 
       - name: Upload PBW artifact
         uses: actions/upload-artifact@v6
@@ -109,7 +115,7 @@ jobs:
               return 0
             fi
             if [[ "$output" == *"release not found"* ]]; then
-              gh release create "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file release-notes.md
+              gh release create "$RELEASE_TAG" --title "getme for Pebble ${RELEASE_TAG#v}" --notes-file release-notes.md
               return
             fi
             echo "$output" >&2
@@ -117,5 +123,5 @@ jobs:
           }
 
           retry ensure_release
-          retry gh release edit "$RELEASE_TAG" --title "$RELEASE_TAG" --notes-file release-notes.md
+          retry gh release edit "$RELEASE_TAG" --title "getme for Pebble ${RELEASE_TAG#v}" --notes-file release-notes.md
           retry gh release upload "$RELEASE_TAG" build/*.pbw --clobber
