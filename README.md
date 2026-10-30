@@ -40,7 +40,7 @@ This is a new Pebble app based on a fork of [Checklist](https://github.com/freak
 
 ## 🎯 Features
 
-|                                |                                                                     |
+| Feature                        | What it does                                                        |
 | ------------------------------ | ------------------------------------------------------------------- |
 | 🔄 **Sync**                    | Your getme list, on your watch.                                     |
 | 📴 **Works offline**           | Shows the last synced list when the phone or server is unavailable. |
